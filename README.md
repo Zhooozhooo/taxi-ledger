@@ -47,4 +47,4 @@ I dati sono memorizzati nel `localStorage` del browser e quindi sono specifici d
 
 I valori iniziali del regime forfettario sono 5% per i primi cinque anni e 15% successivamente; aliquote, coefficiente di redditività, contributi e fondo prudenziale sono modificabili. La modalità ordinaria usa gli scaglioni IRPEF nazionali 2026 23%, 33% e 43%. Le stime non sostituiscono il commercialista.
 
-Sito Taxi Ledger pubblicato con GitHub Pages
+Sito Taxi Ledger pubblicato con GitHub Pages 
