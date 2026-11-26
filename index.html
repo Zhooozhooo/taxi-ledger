@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7c948">
+  <meta name="description" content="Taxi Ledger: incassi, spese, storico e consuntivi per taxi.">
+  <title>Taxi Ledger</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand" aria-label="Taxi Ledger">
+        <div class="brand-mark">🚕</div>
+        <div><strong>Taxi Ledger</strong><small>Gestione attività</small></div>
+      </div>
+      <nav id="mainNav" aria-label="Navigazione principale">
+        <button class="nav-item active" data-view="dashboard"><span>◫</span> Cruscotto</button>
+        <button class="nav-item" data-view="revenues"><span>€</span> Incassi</button>
+        <button class="nav-item" data-view="expenses"><span>−</span> Spese</button>
+        <button class="nav-item" data-view="report"><span>▥</span> Consuntivo</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span> Impostazioni</button>
+      </nav>
+      <div class="privacy-badge">🔒 Dati salvati solo su questo dispositivo</div>
+    </aside>
+
+    <main class="content">
+      <header class="mobile-header">
+        <div class="brand"><div class="brand-mark">🚕</div><strong>Taxi Ledger</strong></div>
+        <button id="menuButton" class="icon-button" aria-label="Apri menu">☰</button>
+      </header>
+
+      <section id="view-dashboard" class="view active">
+        <div class="page-head"><div><p class="eyebrow">PANORAMICA</p><h1>Cruscotto</h1><p id="todayLabel" class="muted"></p></div></div>
+        <div class="segmented" id="dashboardScope" role="group" aria-label="Periodo">
+          <button data-scope="day" class="active">Oggi</button><button data-scope="month">Mese</button><button data-scope="year">Anno</button>
+        </div>
+        <div class="metrics-grid dashboard-grid">
+          <article class="metric hero"><span class="metric-icon yellow">€</span><div><small>Incasso totale</small><strong id="dashTotal">€ 0,00</strong></div></article>
+          <article class="metric"><span class="metric-icon green">▤</span><div><small>Contanti</small><strong id="dashCash">€ 0,00</strong></div></article>
+          <article class="metric"><span class="metric-icon blue">▰</span><div><small>Carta</small><strong id="dashCard">€ 0,00</strong></div></article>
+          <article class="metric"><span class="metric-icon red">↓</span><div><small>Spese sostenute</small><strong id="dashExpenses">€ 0,00</strong></div></article>
+          <article class="metric"><span class="metric-icon yellow">=</span><div><small>Margine di cassa</small><strong id="dashMargin">€ 0,00</strong></div></article>
+        </div>
+        <div class="quick-actions">
+          <button class="primary" data-action="new-revenue">＋ Nuovo incasso</button>
+          <button class="secondary" data-action="new-expense">− Nuova spesa</button>
+        </div>
+        <div class="panel-grid">
+          <article class="panel"><div class="panel-head"><h2>Ultimi movimenti</h2><button class="text-button" data-view-link="revenues">Vedi storico</button></div><div id="recentMovements" class="movement-list"></div></article>
+          <article class="panel"><div class="panel-head"><h2>Prossime spese</h2><button class="text-button" data-view-link="expenses">Gestisci</button></div><div id="upcomingExpenses" class="movement-list"></div></article>
+        </div>
+      </section>
+
+      <section id="view-revenues" class="view">
+        <div class="page-head"><div><p class="eyebrow">STORICO</p><h1>Incassi</h1><p class="muted">Registra e correggi i pagamenti ricevuti.</p></div><button class="primary" data-action="new-revenue">＋ Nuovo incasso</button></div>
+        <div class="metrics-grid compact"><article class="metric"><small>Totale filtrato</small><strong id="revenueFilteredTotal">€ 0,00</strong></article><article class="metric"><small>Contanti</small><strong id="revenueCashTotal">€ 0,00</strong></article><article class="metric"><small>Carta</small><strong id="revenueCardTotal">€ 0,00</strong></article></div>
+        <div class="toolbar"><input id="revenueSearch" type="search" placeholder="Cerca nelle note…"><select id="revenueMethodFilter"><option value="all">Tutti i pagamenti</option><option value="cash">Contanti</option><option value="card">Carta</option></select><input id="revenueMonthFilter" type="month" aria-label="Filtra per mese"><button id="clearRevenueFilters" class="ghost">Azzera</button></div>
+        <article class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Data</th><th>Metodo</th><th>Nota</th><th class="number">Importo</th><th></th></tr></thead><tbody id="revenuesTable"></tbody></table></div><div id="revenuesEmpty" class="empty hidden">Nessun incasso corrisponde ai filtri.</div></article>
+      </section>
+
+      <section id="view-expenses" class="view">
+        <div class="page-head"><div><p class="eyebrow">COSTI E SCADENZE</p><h1>Spese</h1><p class="muted">Tieni sotto controllo costi sostenuti e pianificati.</p></div><button class="primary" data-action="new-expense">＋ Nuova spesa</button></div>
+        <div class="segmented" id="expenseStatusFilter"><button data-status="paid" class="active">Sostenute</button><button data-status="planned">Pianificate</button><button data-status="all">Tutte</button></div>
+        <div class="metrics-grid compact"><article class="metric"><small>Totale mostrato</small><strong id="expenseFilteredTotal">€ 0,00</strong></article><article class="metric"><small>Spese sostenute</small><strong id="expensePaidTotal">€ 0,00</strong></article><article class="metric"><small>Spese pianificate</small><strong id="expensePlannedTotal">€ 0,00</strong></article></div>
+        <div class="toolbar"><input id="expenseSearch" type="search" placeholder="Cerca categoria o nota…"><select id="expenseCategoryFilter"><option value="all">Tutte le categorie</option></select><input id="expenseMonthFilter" type="month" aria-label="Filtra per mese"><button id="clearExpenseFilters" class="ghost">Azzera</button></div>
+        <article class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Data</th><th>Categoria</th><th>Stato</th><th>Nota</th><th class="number">Importo</th><th></th></tr></thead><tbody id="expensesTable"></tbody></table></div><div id="expensesEmpty" class="empty hidden">Nessuna spesa corrisponde ai filtri.</div></article>
+      </section>
+
+      <section id="view-report" class="view">
+        <div class="page-head"><div><p class="eyebrow">RIEPILOGO ANNUALE</p><h1>Consuntivo</h1><p class="muted">Stima gli accantonamenti ed esporta il PDF.</p></div><div class="head-actions"><select id="reportYear" aria-label="Anno del consuntivo"></select><button id="exportPdf" class="primary">⇩ Esporta PDF</button></div></div>
+        <div class="metrics-grid report-grid"><article class="metric"><small>Ricavi</small><strong id="reportRevenue">€ 0,00</strong></article><article class="metric"><small>Spese sostenute</small><strong id="reportExpenses">€ 0,00</strong></article><article class="metric"><small>Base imponibile</small><strong id="reportTaxable">€ 0,00</strong></article><article class="metric hero"><small>Accantonamento totale</small><strong id="reportReserve">€ 0,00</strong></article></div>
+        <div class="panel-grid report-panels">
+          <article class="panel"><div class="panel-head"><h2>Dettaglio fiscale</h2><span id="reportRegime" class="badge"></span></div><dl class="summary-list"><div><dt id="mainTaxLabel">Imposta</dt><dd id="reportMainTax">€ 0,00</dd></div><div><dt>Aliquota effettiva</dt><dd id="reportEffectiveRate">0%</dd></div><div><dt>Fondo prudenziale</dt><dd id="reportSafety">€ 0,00</dd></div><div class="total"><dt>Disponibile stimato</dt><dd id="reportNet">€ 0,00</dd></div></dl><p id="reportNote" class="info-note"></p></article>
+          <article class="panel"><h2>Composizione</h2><div class="bar-row"><div><span>Contanti</span><b id="reportCashText"></b></div><div class="progress"><i id="reportCashBar" class="green-bg"></i></div></div><div class="bar-row"><div><span>Carta</span><b id="reportCardText"></b></div><div class="progress"><i id="reportCardBar" class="blue-bg"></i></div></div><div class="bar-row"><div><span>Spese / ricavi</span><b id="reportCostText"></b></div><div class="progress"><i id="reportCostBar" class="red-bg"></i></div></div></article>
+        </div>
+        <article class="panel"><div class="panel-head"><h2>Totali mensili</h2><button id="exportCsv" class="ghost">Esporta CSV</button></div><div class="table-wrap"><table><thead><tr><th>Mese</th><th class="number">Contanti</th><th class="number">Carta</th><th class="number">Ricavi</th><th class="number">Spese</th><th class="number">Margine</th></tr></thead><tbody id="monthlyTable"></tbody></table></div></article>
+      </section>
+
+      <section id="view-settings" class="view">
+        <div class="page-head"><div><p class="eyebrow">CONFIGURAZIONE</p><h1>Impostazioni</h1><p class="muted">Personalizza regime fiscale e accantonamenti.</p></div><button id="saveSettings" class="primary">Salva impostazioni</button></div>
+        <form id="settingsForm" class="settings-layout">
+          <article class="panel"><h2>Profilo fiscale</h2><label>Data inizio attività<input id="businessStartDate" type="date" required></label><label>Regime fiscale<select id="taxRegime"><option value="flat">Regime forfettario</option><option value="ordinary">Regime ordinario / IRPEF</option></select></label><div id="flatSettings"><label>Aliquota primi 5 anni (%)<input id="startupRate" type="number" min="0" max="100" step="0.1"></label><label>Aliquota successiva (%)<input id="standardRate" type="number" min="0" max="100" step="0.1"></label><label>Coefficiente di redditività (%)<input id="profitability" type="number" min="0" max="100" step="0.1"></label></div></article>
+          <article class="panel"><h2>Accantonamenti</h2><label>Contributi previdenziali annui (€)<input id="contributions" type="number" min="0" step="0.01"></label><label>Fondo prudenziale sui ricavi (%)<input id="safetyRate" type="number" min="0" max="100" step="0.1"></label><div class="info-note">Il fondo prudenziale è aggiuntivo all’imposta stimata e può coprire contributi, addizionali o imprevisti.</div></article>
+          <article class="panel full"><h2>Dati e backup</h2><p class="muted">I dati sono nel browser. Esporta periodicamente un backup JSON, soprattutto prima di cancellare dati del sito o cambiare dispositivo.</p><div class="button-row"><button id="exportBackup" type="button" class="secondary">⇩ Esporta backup</button><label class="button secondary file-button">⇧ Importa backup<input id="importBackup" type="file" accept="application/json"></label><button id="deleteAllData" type="button" class="danger">Elimina tutti i dati</button></div></article>
+          <article class="panel full warning"><h2>Avvertenza fiscale</h2><p>Le stime sono uno strumento organizzativo e non sostituiscono il commercialista. Regime, coefficiente ATECO, contributi, detrazioni e addizionali dipendono dalla posizione personale.</p></article>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="entryDialog">
+    <form id="entryForm" method="dialog">
+      <div class="dialog-head"><div><p id="entryEyebrow" class="eyebrow"></p><h2 id="entryTitle"></h2></div><button type="button" class="icon-button" data-close-dialog aria-label="Chiudi">×</button></div>
+      <input id="entryId" type="hidden"><input id="entryType" type="hidden">
+      <div id="revenueFields">
+        <label>Importo (€)<input id="revenueAmount" inputmode="decimal" type="number" min="0.01" step="0.01"></label>
+        <label>Metodo di pagamento<select id="revenueMethod"><option value="cash">Contanti</option><option value="card">Carta</option></select></label>
+        <label>Data e ora<input id="revenueDate" type="datetime-local"></label>
+        <label>Nota<textarea id="revenueNote" rows="3" placeholder="Facoltativa"></textarea></label>
+      </div>
+      <div id="expenseFields" class="hidden">
+        <label>Importo (€)<input id="expenseAmount" inputmode="decimal" type="number" min="0.01" step="0.01"></label>
+        <label>Categoria<select id="expenseCategory"></select></label>
+        <label>Stato<select id="expenseStatus"><option value="paid">Sostenuta</option><option value="planned">Pianificata</option></select></label>
+        <label>Data<input id="expenseDate" type="date"></label>
+        <label>Nota<textarea id="expenseNote" rows="3" placeholder="Facoltativa"></textarea></label>
+      </div>
+      <div class="dialog-actions"><button type="button" id="deleteEntry" class="danger hidden">Elimina</button><span></span><button type="button" class="ghost" data-close-dialog>Annulla</button><button type="submit" class="primary">Salva</button></div>
+    </form>
+  </dialog>
+
+  <div id="confirmOverlay" class="confirm-overlay hidden" role="dialog" aria-modal="true"><div class="confirm-box"><h2 id="confirmTitle">Conferma</h2><p id="confirmMessage"></p><div><button id="confirmCancel" class="ghost">Annulla</button><button id="confirmOk" class="danger">Conferma</button></div></div></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
