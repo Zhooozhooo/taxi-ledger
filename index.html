@@ -63,8 +63,7 @@
         <button class="nav-item active" data-view="dashboard"><span>⌂</span>Cruscotto</button>
         <button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button>
         <button class="nav-item" data-view="expenses"><span>↘</span>Spese</button>
-        <button class="nav-item" data-view="holidays"><span>☀</span>Ferie</button>
-        <button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
+        <button class="nav-item" data-view="shifts"><span>◷</span>Ferie e Turni</button>
         <button class="nav-item" data-view="report"><span>▤</span>Consuntivo</button>
         <button class="nav-item" data-view="settings"><span>⚙</span>Impostazioni</button>
       </nav>
@@ -120,19 +119,12 @@
           <div class="card table-card"><div class="table-toolbar"><label id="expenseSearchLabel">Cerca nel giorno<input id="expenseSearch" type="search" placeholder="Categoria o nota"></label></div><div class="table-wrap"><table><thead><tr><th>Azioni</th><th>Data</th><th>Categoria</th><th>Stato</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody id="expenseTable"></tbody></table></div><div id="expenseEmpty" class="empty hidden"></div></div>
         </section>
 
-        <section id="view-holidays" class="view">
-          <div class="section-actions"><div><h2>Ferie</h2><p class="muted">I periodi personali e i riposi obbligatori vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
-          <div id="holidaySummary" class="mini-kpis"></div>
-          <article class="card shift-calendar-card holiday-calendar-card">
-            <div class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO FERIE</p><h3 id="holidayCalendarTitle">Calendario mensile</h3></div><div class="calendar-navigation"><button id="holidayCalendarPrev" class="icon-btn calendar-arrow" type="button" aria-label="Mese precedente">‹</button><label class="calendar-month-picker"><span>Mese</span><input id="holidayCalendarMonth" type="month"></label><button id="holidayCalendarNext" class="icon-btn calendar-arrow" type="button" aria-label="Mese successivo">›</button></div></div>
-            <div class="calendar-legend"><span><i class="legend-swatch mandatory"></i>Ferie imposte</span><span><i class="legend-swatch personal"></i>Ferie personali</span></div>
-            <div class="calendar-scroll"><div class="calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="holidayCalendarGrid" class="shift-calendar-grid holiday-calendar-grid"></div></div>
-          </article>
-          <div class="card"><div id="holidayList" class="holiday-list"></div><div id="holidayEmpty" class="empty hidden"></div></div>
-        </section>
-
         <section id="view-shifts" class="view">
-          <div class="section-actions shift-section-actions"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027, incorporata dagli allegati della D.D. QG/2926/2025.</p></div><div class="shift-pdf-actions"><div><a id="shiftPdfLink" class="secondary source-link" href="Esecutiva_Determina_QG_2926_2025con_turni_completi.pdf" target="_blank" rel="noopener">Apri PDF attuale</a><label class="file-button shift-pdf-upload">Carica nuovo PDF<input id="shiftPdfUpload" type="file" accept="application/pdf,.pdf"></label></div><small id="shiftPdfStatus">PDF attuale: documento ufficiale incluso nell’app.</small></div></div>
+
+          <div class="section-actions"><div><h2>Ferie e Turni</h2><p class="muted">I periodi personali e i riposi obbligatori vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
+          <div id="holidaySummary" class="mini-kpis"></div>
+          <div class="card"><div id="holidayList" class="holiday-list"></div><div id="holidayEmpty" class="empty hidden"></div></div>
+          <div class="section-actions shift-section-actions combined-shift-heading"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027, incorporata dagli allegati della D.D. QG/2926/2025.</p></div><div class="shift-pdf-actions"><div><a id="shiftPdfLink" class="secondary source-link" href="Esecutiva_Determina_QG_2926_2025con_turni_completi.pdf" target="_blank" rel="noopener">Apri PDF attuale</a><label class="file-button shift-pdf-upload">Carica nuovo PDF<input id="shiftPdfUpload" type="file" accept="application/pdf,.pdf"></label></div><small id="shiftPdfStatus">PDF attuale: documento ufficiale incluso nell’app.</small></div></div>
           <div class="card shift-controls">
             <label>Tipo licenza<select id="shiftLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label>
             <label>Numero licenza<input id="shiftLicenseInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label>
@@ -175,7 +167,7 @@
     </div>
 
     <nav class="bottom-nav" aria-label="Navigazione mobile">
-      <button class="nav-item active" data-view="dashboard"><span>⌂</span>Home</button><button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button><button class="nav-item quick" id="mobileQuick" type="button"><span>＋</span></button><button class="nav-item" data-view="expenses"><span>↘</span>Spese</button><button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
+      <button class="nav-item active" data-view="dashboard"><span>⌂</span>Home</button><button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button><button class="nav-item quick" id="mobileQuick" type="button"><span>＋</span></button><button class="nav-item" data-view="expenses"><span>↘</span>Spese</button><button class="nav-item" data-view="shifts"><span>◷</span>Ferie e Turni</button>
     </nav>
   </div>
 

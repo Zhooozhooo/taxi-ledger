@@ -54,7 +54,6 @@
   };
   let selectedSecondDriverYear = currentYear;
   let shiftCalendarMonth = currentMonth;
-  let holidayCalendarMonth = currentMonth;
   let shiftPdfObjectUrl = '';
 
   function loadStore() {
@@ -243,7 +242,7 @@
 
   const viewInfo = {
     dashboard:['PANORAMICA','Cruscotto'], revenues:['MOVIMENTI','Incassi'], expenses:['COSTI','Spese'],
-    holidays:['CALENDARIO','Ferie'], shifts:['PROGRAMMAZIONE','Turni'], report:['PIANIFICAZIONE','Consuntivo'], settings:['PROFILO','Impostazioni']
+    shifts:['PROGRAMMAZIONE','Ferie e Turni'], report:['PIANIFICAZIONE','Consuntivo'], settings:['PROFILO','Impostazioni']
   };
   function navigate(view) {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
@@ -251,7 +250,7 @@
     $('#pageKicker').textContent = viewInfo[view][0]; $('#pageTitle').textContent = viewInfo[view][1];
     window.scrollTo({top:0, behavior:'smooth'});
     if (view === 'report') renderReport();
-    if (view === 'shifts') renderShifts();
+    if (view === 'shifts') { renderHolidays(); renderShifts(); }
     $('.sidebar').classList.remove('open');
   }
   $$('.nav-item[data-view]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
@@ -604,39 +603,8 @@
     $('#holidaySummary').innerHTML = `<div class="mini-card featured"><span>Totale giorni pianificati ${currentYear}</span><strong>${plannedDays.size}</strong><small>giorni unici, inclusi i riposi imposti</small></div><div class="mini-card"><span>Giorni feriali esclusi</span><strong>${netDays}</strong><small>non usati nelle proiezioni</small></div><div class="mini-card"><span>Riposi imposti</span><strong>${imposed}</strong><small>periodi da QG/2926/2025</small></div><div class="mini-card"><span>Prossimo periodo</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
     $('#holidayList').innerHTML = rows.map(h=>`<div class="holiday-item ${h.locked?'mandatory':''}"><span class="holiday-icon">${h.locked?'◆':'☀'}</span><div><h4>${esc(h.name)} ${h.locked?'<span class="mandatory-badge">Imposta</span>':''}</h4><p>${dateLabel(h.start)} → ${dateLabel(h.end)}${h.note?` · ${esc(h.note)}`:''}</p></div><span class="days-badge">${daysInclusive(h.start,h.end)} giorni</span>${h.locked?'<span class="lock-mark" title="Periodo automatico">🔒</span>':`<button class="edit-btn" data-edit="holiday" data-id="${h.id}" aria-label="Modifica ferie">✎</button>`}</div>`).join('');
     $('#holidayEmpty').classList.toggle('hidden', rows.length>0); $('#holidayEmpty').innerHTML='<strong>Nessun periodo di ferie</strong>Aggiungilo per rendere più accurate le proiezioni.';
-    renderHolidayCalendar();
   }
 
-  function renderHolidayCalendar() {
-    const [year,month]=holidayCalendarMonth.split('-').map(Number), first=new Date(year,month-1,1,12), days=new Date(year,month,0,12).getDate();
-    const offset=(first.getDay()+6)%7, cells=[];
-    $('#holidayCalendarMonth').value=holidayCalendarMonth;
-    const title=monthLabel(holidayCalendarMonth); $('#holidayCalendarTitle').textContent=title.charAt(0).toUpperCase()+title.slice(1);
-    for(let index=0;index<42;index++) {
-      const day=index-offset+1;
-      if(day<1||day>days){cells.push('<div class="calendar-day outside" aria-hidden="true"></div>');continue;}
-      const dateISO=`${year}-${pad(month)}-${pad(day)}`, holidays=holidaysForDate(dateISO), mandatory=holidays.some(h=>h.locked), personal=holidays.some(h=>!h.locked);
-      const classes=['calendar-day']; if(dateISO===today)classes.push('today'); if(mandatory)classes.push('has-mandatory'); if(personal)classes.push('has-personal');
-      const events=holidays.slice(0,3).map(h=>`<span class="calendar-event ${h.locked?'mandatory':'personal'}" title="${esc(h.name)}">${h.locked?'Riposo imposto':esc(h.name)}</span>`).join('');
-      const extra=holidays.length>3?`<span class="calendar-more">+${holidays.length-3}</span>`:'';
-      cells.push(`<button class="${classes.join(' ')}" type="button" data-holiday-date="${dateISO}" aria-label="${dateLabel(dateISO)}${holidays.length?`, ${holidays.map(h=>h.name).join(', ')}`:''}"><span class="calendar-day-number">${day}</span><div class="calendar-events">${events}${extra}</div></button>`);
-    }
-    $('#holidayCalendarGrid').innerHTML=cells.join('');
-  }
-  function moveHolidayCalendar(delta) {
-    const [year,month]=holidayCalendarMonth.split('-').map(Number), date=new Date(year,month-1+delta,1,12);
-    holidayCalendarMonth=`${date.getFullYear()}-${pad(date.getMonth()+1)}`; renderHolidayCalendar();
-  }
-  $('#holidayCalendarPrev').addEventListener('click',()=>moveHolidayCalendar(-1));
-  $('#holidayCalendarNext').addEventListener('click',()=>moveHolidayCalendar(1));
-  $('#holidayCalendarMonth').addEventListener('change',e=>{if(e.target.value){holidayCalendarMonth=e.target.value;renderHolidayCalendar();}});
-  $('#holidayCalendarGrid').addEventListener('click',e=>{
-    const cell=e.target.closest('[data-holiday-date]'); if(!cell)return;
-    const date=cell.dataset.holidayDate, personal=holidaysForDate(date).find(h=>!h.locked);
-    if(personal) return openEntry('holiday',personal.id);
-    openEntry('holiday');
-    $('#entryFields [name="start"]').value=date; $('#entryFields [name="end"]').value=date;
-  });
 
   function reportFilter() {
     const year=$('#reportYear').value||currentYear, month=$('#reportMonth').value;
