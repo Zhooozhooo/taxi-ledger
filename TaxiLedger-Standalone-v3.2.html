@@ -705,6 +705,7 @@ main{background:linear-gradient(180deg,#f6f8fb 0,#f3f5f8 100%);min-height:calc(1
   $$('[data-dashboard-ledger]').forEach(button=>button.addEventListener('click',()=>{
     const kind=button.dataset.dashboardLedger;
     ledgerPeriods[kind]=dashPeriod; ledgerValues[kind][dashPeriod]=dashValues[dashPeriod];
+    kind==='revenues'?renderRevenues():renderExpenses();
     navigate(kind);
   }));
 

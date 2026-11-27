@@ -374,6 +374,7 @@
   $$('[data-dashboard-ledger]').forEach(button=>button.addEventListener('click',()=>{
     const kind=button.dataset.dashboardLedger;
     ledgerPeriods[kind]=dashPeriod; ledgerValues[kind][dashPeriod]=dashValues[dashPeriod];
+    kind==='revenues'?renderRevenues():renderExpenses();
     navigate(kind);
   }));
 
