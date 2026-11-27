@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.1.0';
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const pad = n => String(n).padStart(2, '0');
@@ -170,12 +170,14 @@
   function projection(type, value, data) {
     const {start,end} = periodBounds(type,value);
     if (type === 'day') return null;
-    if (start > today) return {revenue:0,margin:0,totalDays:countWorkingDays(start,end),elapsed:0,status:'future'};
-    if (end < today) return {revenue:data.revenueTotal,margin:data.margin,totalDays:countWorkingDays(start,end),elapsed:countWorkingDays(start,end),status:'closed'};
+    if (start > today) return {revenue:0,margin:0,currentRevenue:0,currentMargin:0,remainingRevenue:0,remainingMargin:0,totalDays:countWorkingDays(start,end),elapsed:0,remaining:countWorkingDays(start,end),status:'future'};
+    if (end < today) return {revenue:data.revenueTotal,margin:data.margin,currentRevenue:data.revenueTotal,currentMargin:data.margin,remainingRevenue:0,remainingMargin:0,totalDays:countWorkingDays(start,end),elapsed:countWorkingDays(start,end),remaining:0,status:'closed'};
     const cutoff = today < end ? today : end;
     const elapsed = countWorkingDays(start,cutoff), totalDays = countWorkingDays(start,end);
-    const factor = elapsed ? totalDays / elapsed : 0;
-    return {revenue:data.revenueTotal*factor, margin:data.margin*factor, totalDays, elapsed, status:'live'};
+    const remaining = Math.max(0,totalDays-elapsed);
+    const dailyRevenue = elapsed ? data.revenueTotal/elapsed : 0, dailyMargin = elapsed ? data.margin/elapsed : 0;
+    const remainingRevenue=dailyRevenue*remaining, remainingMargin=dailyMargin*remaining;
+    return {revenue:data.revenueTotal+remainingRevenue, margin:data.margin+remainingMargin, currentRevenue:data.revenueTotal,currentMargin:data.margin,remainingRevenue,remainingMargin,totalDays,elapsed,remaining,status:'live'};
   }
 
   $$('.period-tab').forEach(btn => btn.addEventListener('click', () => {
@@ -202,13 +204,13 @@
     cards += kpi('▣','CARTA',money(d.card),`${pct(cardShare)} degli incassi`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
     cards += kpi('◇','MARGINE',money(d.margin),`${pct(marginShare)} sugli incassi`);
-    if (p) cards += kpi('⌁', dashPeriod==='month'?'PROIEZIONE FINE MESE':'PROIEZIONE FINE ANNO', money(p.revenue), `Margine stimato ${money(p.margin)}`);
+    if (p) cards += kpi('⌁', dashPeriod==='month'?'TOTALE PROIETTATO FINE MESE':'TOTALE PROIETTATO FINE ANNO', money(p.revenue), `Margine totale proiettato ${money(p.margin)}`);
     $('#dashboardKpis').innerHTML = cards;
     const proj = $('#projectionNote');
     if (!p) proj.innerHTML = '<strong>Vista giornaliera.</strong> Seleziona una data per consultare o correggere lo storico.';
-    else if (p.status === 'live') proj.innerHTML = `<strong>Proiezione su ${p.totalDays} giorni lavorativi:</strong> media calcolata sui ${p.elapsed} giorni trascorsi, escludendo fine settimana e ferie.`;
-    else if (p.status === 'closed') proj.innerHTML = `<strong>Periodo concluso:</strong> il consuntivo coincide con la proiezione. Giorni lavorativi netti: ${p.totalDays}.`;
-    else proj.innerHTML = `<strong>Periodo futuro:</strong> ${p.totalDays} giorni lavorativi previsti, al netto delle ferie.`;
+    else if (p.status === 'live') proj.innerHTML = `<strong>Totale proiettato ${money(p.revenue)}:</strong> ${money(p.currentRevenue)} già incassati + ${money(p.remainingRevenue)} previsti nei ${p.remaining} giorni lavorativi restanti. Weekend e ferie sono esclusi.`;
+    else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> il periodo è concluso e comprende ${p.totalDays} giorni lavorativi netti.`;
+    else proj.innerHTML = `<strong>Periodo futuro:</strong> totale non ancora disponibile; sono previsti ${p.totalDays} giorni lavorativi al netto delle ferie.`;
     $('#revenueTotalBadge').textContent = money(d.revenueTotal);
     $('#revenueMix').innerHTML = `<div class="mix-bar" aria-label="Carta ${pct(cardShare)}, contanti ${pct(cashShare)}"><span class="mix-card" style="width:${cardShare}%"></span><span class="mix-cash" style="width:${cashShare}%"></span></div><div class="mix-legend"><div class="legend-item"><i class="legend-dot mix-card"></i><small>Carta<br><strong>${pct(cardShare)}</strong></small><strong>${money(d.card)}</strong></div><div class="legend-item"><i class="legend-dot mix-cash"></i><small>Contanti<br><strong>${pct(cashShare)}</strong></small><strong>${money(d.cash)}</strong></div></div>`;
     const movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.expenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
@@ -322,10 +324,11 @@
     $('#entryType').value=type; $('#entryId').value=id; $('#entryFields').innerHTML=fieldTemplates[type](item);
     $('#modalKicker').textContent=type==='holiday'?'CALENDARIO':'MOVIMENTO';
     const names={revenue:'incasso',expense:'spesa',holiday:'periodo di ferie'};
-    $('#modalTitle').textContent=`${id?'Modifica':'Nuovo'} ${names[type]}`;
+    const newLabels={revenue:'Nuovo incasso',expense:'Nuova spesa',holiday:'Nuovo periodo di ferie'};
+    $('#modalTitle').textContent=id?`Modifica ${names[type]}`:newLabels[type];
     $('#deleteEntry').classList.toggle('hidden',!id); $('#entryDialog').showModal();
   }
-  $('#addRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addExpense').addEventListener('click',()=>openEntry('expense')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
+  $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickExpense').addEventListener('click',()=>openEntry('expense')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
   $('#closeModal').addEventListener('click',()=>$('#entryDialog').close()); $('#cancelModal').addEventListener('click',()=>$('#entryDialog').close());
   document.addEventListener('click',e=>{const btn=e.target.closest('[data-edit]'); if(btn) openEntry(btn.dataset.edit,btn.dataset.id);});
   $('#entryForm').addEventListener('submit',e=>{

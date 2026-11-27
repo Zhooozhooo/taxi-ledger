@@ -74,7 +74,7 @@
       <header class="topbar">
         <button id="menuBtn" class="icon-btn mobile-only" type="button" aria-label="Apri menu">☰</button>
         <div><p class="eyebrow" id="pageKicker">PANORAMICA</p><h1 id="pageTitle">Cruscotto</h1></div>
-        <div class="top-actions"><span id="syncBadge" class="status-dot">● Salvato sul dispositivo</span><button id="quickRevenue" class="primary" type="button">＋ Incasso</button></div>
+        <div class="top-actions"><span id="syncBadge" class="status-dot">● Salvato sul dispositivo</span><button id="quickExpense" class="quick-action expense-action" type="button"><span aria-hidden="true">−</span><b>Spesa</b></button><button id="quickRevenue" class="quick-action revenue-action" type="button"><span aria-hidden="true">＋</span><b>Incasso</b></button></div>
       </header>
 
       <main>
@@ -97,13 +97,13 @@
         </section>
 
         <section id="view-revenues" class="view">
-          <div class="section-actions"><div><h2>Incassi</h2><p class="muted">Storico completo di carta e contanti.</p></div><button id="addRevenue" class="primary" type="button">＋ Nuovo incasso</button></div>
+          <div class="section-actions"><div><h2>Incassi</h2><p class="muted">Storico completo di carta e contanti. Usa “＋ Incasso” nell'header per aggiungere un movimento.</p></div></div>
           <div id="revenueSummary" class="mini-kpis"></div>
           <div class="card table-card"><div class="table-toolbar"><label>Cerca<input id="revenueSearch" type="search" placeholder="Nota o importo"></label><label>Periodo<input id="revenueMonthFilter" type="month"></label></div><div class="table-wrap"><table><thead><tr><th aria-label="Modifica"></th><th>Data</th><th>Descrizione</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody id="revenueTable"></tbody></table></div><div id="revenueEmpty" class="empty hidden"></div></div>
         </section>
 
         <section id="view-expenses" class="view">
-          <div class="section-actions"><div><h2>Spese</h2><p class="muted">Costi sostenuti e pianificati.</p></div><button id="addExpense" class="primary" type="button">＋ Nuova spesa</button></div>
+          <div class="section-actions"><div><h2>Spese</h2><p class="muted">Costi sostenuti e pianificati. Usa “− Spesa” nell'header per aggiungere un movimento.</p></div></div>
           <div id="expenseSummary" class="mini-kpis"></div>
           <div class="card table-card"><div class="table-toolbar"><label>Cerca<input id="expenseSearch" type="search" placeholder="Categoria o nota"></label><label>Periodo<input id="expenseMonthFilter" type="month"></label></div><div class="table-wrap"><table><thead><tr><th aria-label="Modifica"></th><th>Data</th><th>Categoria</th><th>Stato</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody id="expenseTable"></tbody></table></div><div id="expenseEmpty" class="empty hidden"></div></div>
         </section>
