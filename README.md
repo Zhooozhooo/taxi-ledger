@@ -1,4 +1,4 @@
-# Taxi Ledger 2.1
+# Taxi Ledger 2.2
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -20,6 +20,16 @@ PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fisca
 - azioni rapide `− Spesa` e `＋ Incasso` riunite nell'header;
 - rimossi i pulsanti duplicati dalle pagine Incassi e Spese;
 - interfaccia resa più compatta e vicina all'impostazione visiva della prima versione.
+
+## Correzione proiezione 2.2
+
+La **Proiezione totale incassi** usa esclusivamente i giorni distinti nei quali è stato registrato almeno un incasso:
+
+`incassi già effettuati ÷ giorni di incasso = incasso medio giornaliero`
+
+`incasso medio giornaliero × giorni lavorativi restanti + incassi già effettuati = proiezione totale incassi`
+
+I giorni lavorativi restanti escludono fine settimana e periodi di ferie registrati.
 
 ## Pubblicazione su GitHub Pages
 

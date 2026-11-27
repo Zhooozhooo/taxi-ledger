@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.2.0';
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const pad = n => String(n).padStart(2, '0');
@@ -170,14 +170,19 @@
   function projection(type, value, data) {
     const {start,end} = periodBounds(type,value);
     if (type === 'day') return null;
-    if (start > today) return {revenue:0,margin:0,currentRevenue:0,currentMargin:0,remainingRevenue:0,remainingMargin:0,totalDays:countWorkingDays(start,end),elapsed:0,remaining:countWorkingDays(start,end),status:'future'};
-    if (end < today) return {revenue:data.revenueTotal,margin:data.margin,currentRevenue:data.revenueTotal,currentMargin:data.margin,remainingRevenue:0,remainingMargin:0,totalDays:countWorkingDays(start,end),elapsed:countWorkingDays(start,end),remaining:0,status:'closed'};
-    const cutoff = today < end ? today : end;
-    const elapsed = countWorkingDays(start,cutoff), totalDays = countWorkingDays(start,end);
-    const remaining = Math.max(0,totalDays-elapsed);
-    const dailyRevenue = elapsed ? data.revenueTotal/elapsed : 0, dailyMargin = elapsed ? data.margin/elapsed : 0;
-    const remainingRevenue=dailyRevenue*remaining, remainingMargin=dailyMargin*remaining;
-    return {revenue:data.revenueTotal+remainingRevenue, margin:data.margin+remainingMargin, currentRevenue:data.revenueTotal,currentMargin:data.margin,remainingRevenue,remainingMargin,totalDays,elapsed,remaining,status:'live'};
+    const totalDays=countWorkingDays(start,end);
+    if (start > today) return {revenue:0,currentRevenue:0,averageRevenue:0,remainingRevenue:0,revenueDays:0,totalDays,remaining:totalDays,status:'future'};
+    const cutoff=today<end?today:end;
+    const actualRevenues=data.revenues.filter(r=>r.date>=start&&r.date<=cutoff);
+    const currentRevenue=actualRevenues.reduce((sum,r)=>sum+Number(r.amount),0);
+    const revenueDays=new Set(actualRevenues.map(r=>r.date)).size;
+    const averageRevenue=revenueDays?currentRevenue/revenueDays:0;
+    if (end < today) return {revenue:currentRevenue,currentRevenue,averageRevenue,remainingRevenue:0,revenueDays,totalDays,remaining:0,status:'closed'};
+    const tomorrowDate=parseDate(today); tomorrowDate.setDate(tomorrowDate.getDate()+1);
+    const tomorrow=localISO(tomorrowDate);
+    const remaining=tomorrow<=end?countWorkingDays(tomorrow,end):0;
+    const remainingRevenue=averageRevenue*remaining;
+    return {revenue:currentRevenue+remainingRevenue,currentRevenue,averageRevenue,remainingRevenue,revenueDays,totalDays,remaining,status:'live'};
   }
 
   $$('.period-tab').forEach(btn => btn.addEventListener('click', () => {
@@ -204,12 +209,13 @@
     cards += kpi('▣','CARTA',money(d.card),`${pct(cardShare)} degli incassi`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
     cards += kpi('◇','MARGINE',money(d.margin),`${pct(marginShare)} sugli incassi`);
-    if (p) cards += kpi('⌁', dashPeriod==='month'?'TOTALE PROIETTATO FINE MESE':'TOTALE PROIETTATO FINE ANNO', money(p.revenue), `Margine totale proiettato ${money(p.margin)}`);
+    if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi');
     $('#dashboardKpis').innerHTML = cards;
     const proj = $('#projectionNote');
     if (!p) proj.innerHTML = '<strong>Vista giornaliera.</strong> Seleziona una data per consultare o correggere lo storico.';
-    else if (p.status === 'live') proj.innerHTML = `<strong>Totale proiettato ${money(p.revenue)}:</strong> ${money(p.currentRevenue)} già incassati + ${money(p.remainingRevenue)} previsti nei ${p.remaining} giorni lavorativi restanti. Weekend e ferie sono esclusi.`;
-    else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> il periodo è concluso e comprende ${p.totalDays} giorni lavorativi netti.`;
+    else if (p.status === 'live' && p.revenueDays) proj.innerHTML = `<strong>Proiezione totale incassi ${money(p.revenue)}:</strong> ${money(p.currentRevenue)} incassati ÷ ${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso = ${money(p.averageRevenue)} medi al giorno; ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno lavorativo restante':'giorni lavorativi restanti'} = ${money(p.remainingRevenue)} previsti. Weekend e ferie sono esclusi.`;
+    else if (p.status === 'live') proj.innerHTML = `<strong>Proiezione totale incassi non disponibile:</strong> non risultano ancora giorni con incassi nel periodo selezionato. Giorni lavorativi restanti: ${p.remaining}.`;
+    else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> ${p.revenueDays} ${p.revenueDays===1?'giorno distinto':'giorni distinti'} con incassi nel periodo concluso.`;
     else proj.innerHTML = `<strong>Periodo futuro:</strong> totale non ancora disponibile; sono previsti ${p.totalDays} giorni lavorativi al netto delle ferie.`;
     $('#revenueTotalBadge').textContent = money(d.revenueTotal);
     $('#revenueMix').innerHTML = `<div class="mix-bar" aria-label="Carta ${pct(cardShare)}, contanti ${pct(cashShare)}"><span class="mix-card" style="width:${cardShare}%"></span><span class="mix-cash" style="width:${cashShare}%"></span></div><div class="mix-legend"><div class="legend-item"><i class="legend-dot mix-card"></i><small>Carta<br><strong>${pct(cardShare)}</strong></small><strong>${money(d.card)}</strong></div><div class="legend-item"><i class="legend-dot mix-cash"></i><small>Contanti<br><strong>${pct(cashShare)}</strong></small><strong>${money(d.cash)}</strong></div></div>`;
