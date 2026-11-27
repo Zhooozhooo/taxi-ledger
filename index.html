@@ -3,183 +3,87 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b1220">
+  <meta name="theme-color" content="#0b1324">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Taxi Ledger">
-  <meta name="description" content="Gestione locale di incassi, spese, ferie e accantonamenti per taxi.">
   <title>Taxi Ledger</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
   <section id="authView" class="auth-shell">
-    <div class="auth-brand">
-      <div class="brand-mark">TL</div>
-      <div>
-        <p class="eyebrow">IL TUO CRUSCOTTO DI LAVORO</p>
-        <h1>Taxi Ledger</h1>
-        <p>Incassi, costi e accantonamenti. Tutto sotto controllo, anche offline.</p>
-      </div>
-    </div>
-    <div class="auth-panel">
-      <div class="auth-tabs" role="tablist">
-        <button class="auth-tab active" data-auth-tab="login" type="button">Accedi</button>
-        <button class="auth-tab" data-auth-tab="register" type="button">Registrati</button>
-      </div>
+    <div class="auth-card">
+      <div class="brand brand-auth"><span class="brand-mark">TL</span><div><strong>Taxi Ledger</strong><small>Il tuo cruscotto di lavoro</small></div></div>
+      <div class="auth-tabs"><button class="active" data-auth-tab="login">Accedi</button><button data-auth-tab="register">Registrati</button></div>
       <form id="loginForm" class="auth-form">
-        <div>
-          <p class="eyebrow">BENTORNATO</p>
-          <h2>Accedi al tuo profilo</h2>
-          <p class="muted">I dati restano separati per ciascun utente su questo dispositivo.</p>
-        </div>
-        <label>Email<input id="loginEmail" type="email" autocomplete="username" required placeholder="nome@email.it"></label>
-        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Almeno 6 caratteri"></label>
-        <button class="primary wide" type="submit">Accedi</button>
+        <label>Email<input id="loginEmail" type="email" autocomplete="username" required placeholder="nome@esempio.it"></label>
+        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required minlength="4" placeholder="••••••••"></label>
+        <button class="btn primary wide" type="submit">Accedi</button>
       </form>
       <form id="registerForm" class="auth-form hidden">
-        <div>
-          <p class="eyebrow">NUOVO PROFILO</p>
-          <h2>Crea il tuo spazio</h2>
-          <p class="muted">Ogni profilo ha dati e impostazioni fiscali indipendenti.</p>
-        </div>
-        <label>Nome visualizzato<input id="registerName" type="text" autocomplete="name" required maxlength="50" placeholder="Es. Federico"></label>
-        <label>Email<input id="registerEmail" type="email" autocomplete="username" required placeholder="nome@email.it"></label>
-        <label>Password<input id="registerPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="Almeno 6 caratteri"></label>
-        <button class="primary wide" type="submit">Crea profilo</button>
+        <label>Nome<input id="registerName" required placeholder="Mario Rossi"></label>
+        <label>Email<input id="registerEmail" type="email" required placeholder="nome@esempio.it"></label>
+        <label>Password<input id="registerPassword" type="password" required minlength="4" placeholder="Almeno 4 caratteri"></label>
+        <button class="btn primary wide" type="submit">Crea profilo</button>
       </form>
-      <div class="privacy-note"><span>⌁</span><p><strong>Archivio locale.</strong> Password protetta con hash; nessun dato viene inviato online.</p></div>
+      <p id="authMessage" class="form-message"></p>
+      <button id="demoLogin" class="link-button" type="button">Entra con il profilo demo</button>
+      <p class="privacy-note">I dati restano in questo browser. Esporta periodicamente un backup dalle Impostazioni.</p>
     </div>
   </section>
 
   <div id="appView" class="app-shell hidden">
-    <aside class="sidebar">
-      <div class="sidebar-brand"><div class="brand-mark small">TL</div><div><strong>Taxi Ledger</strong><span>Business cockpit</span></div></div>
-      <nav id="sideNav" aria-label="Navigazione principale">
-        <button class="nav-item active" data-view="dashboard"><span>⌂</span>Cruscotto</button>
-        <button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button>
-        <button class="nav-item" data-view="expenses"><span>↘</span>Spese</button>
-        <button class="nav-item" data-view="holidays"><span>☀</span>Ferie</button>
-        <button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
-        <button class="nav-item" data-view="report"><span>▤</span>Consuntivo</button>
-        <button class="nav-item" data-view="settings"><span>⚙</span>Impostazioni</button>
+    <aside id="sidebar" class="sidebar">
+      <div class="brand"><span class="brand-mark">TL</span><div><strong>Taxi Ledger</strong><small>Gestione attività</small></div></div>
+      <nav id="mainNav">
+        <button class="nav-item active" data-page="dashboard"><span>▦</span> Cruscotto</button>
+        <button class="nav-item" data-page="income"><span>↗</span> Incassi</button>
+        <button class="nav-item" data-page="expenses"><span>↘</span> Spese</button>
+        <button class="nav-item" data-page="shifts"><span>◷</span> Turni</button>
+        <button class="nav-item" data-page="holidays"><span>☀</span> Ferie</button>
+        <button class="nav-item" data-page="closing"><span>◎</span> Consuntivo</button>
+        <button class="nav-item" data-page="settings"><span>⚙</span> Impostazioni</button>
       </nav>
-      <div class="sidebar-user"><div id="userInitial" class="avatar">U</div><div><strong id="sidebarUserName">Utente</strong><span id="sidebarUserEmail"></span></div><button id="logoutBtn" class="icon-btn" type="button" title="Esci">⇥</button></div>
+      <div class="sidebar-footer"><span id="sidebarUser">Profilo</span><button id="logoutBtn" class="icon-btn" title="Esci">⇥</button></div>
     </aside>
 
-    <div class="app-main">
+    <main class="main">
       <header class="topbar">
-        <button id="menuBtn" class="icon-btn mobile-only" type="button" aria-label="Apri menu">☰</button>
-        <div><p class="eyebrow" id="pageKicker">PANORAMICA</p><h1 id="pageTitle">Cruscotto</h1></div>
-        <div class="top-actions"><span id="syncBadge" class="status-dot">● Salvato sul dispositivo</span><button id="quickExpense" class="quick-action expense-action" type="button"><span aria-hidden="true">−</span><b>Spesa</b></button><button id="quickRevenue" class="quick-action revenue-action" type="button"><span aria-hidden="true">＋</span><b>Incasso</b></button></div>
+        <button id="menuBtn" class="icon-btn menu-btn">☰</button>
+        <div><h1 id="pageTitle">Cruscotto</h1><p id="pageSubtitle">Una vista chiara della tua attività</p></div>
+        <div class="header-actions"><button class="btn income" data-open="income">＋ Incasso</button><button class="btn expense" data-open="expense">− Spesa</button></div>
       </header>
-
-      <main>
-        <section id="view-dashboard" class="view active">
-          <div class="welcome-row"><div><h2 id="welcomeTitle">Buon lavoro</h2><p class="muted">Una lettura immediata dell'attività.</p></div><div class="date-chip" id="todayChip"></div></div>
-          <div class="period-tabs">
-            <button class="period-tab active" data-period="day">Giorno</button>
-            <button class="period-tab" data-period="month">Mese</button>
-            <button class="period-tab" data-period="year">Anno</button>
-          </div>
-          <div class="period-controls card compact">
-            <label id="dashPickerLabel">Data<input id="dashboardPicker" type="date"></label>
-            <div id="projectionNote" class="projection-note"></div>
-          </div>
-          <div id="globalReminderBanner" class="reminder-banner hidden" role="status" aria-live="polite"></div>
-          <div id="dashboardKpis" class="kpi-grid"></div>
-          <div class="dashboard-grid">
-            <article class="card"><div class="card-heading"><div><p class="eyebrow">COMPOSIZIONE</p><h3>Incassi e spese</h3></div><span id="revenueTotalBadge" class="pill"></span></div><div id="revenueMix" class="mix-chart"></div></article>
-            <article class="card"><div class="card-heading recent-heading"><div><p class="eyebrow">ULTIMI MOVIMENTI</p><h3>Attività recente</h3></div><div class="recent-actions"><label>Filtro<select id="recentMovementFilter"><option value="all">Tutti</option><option value="revenue">Solo incassi</option><option value="expense">Solo spese</option></select></label><button class="text-btn" data-view-link="revenues">Vedi tutti</button></div></div><div id="recentMovements" class="movement-list"></div></article>
-          </div>
-        </section>
-
-        <section id="view-revenues" class="view">
-          <div class="section-actions"><div><h2>Incassi</h2><p class="muted">Storico completo di carta e contanti. Usa “＋ Incasso” nell'header per aggiungere un movimento.</p></div></div>
-          <div id="revenueSummary" class="mini-kpis"></div>
-          <div class="card table-card"><div class="table-toolbar"><label>Giorno<input id="revenueDayFilter" type="date" required></label><label>Cerca nel giorno<input id="revenueSearch" type="search" placeholder="Turno, note o importo"></label></div><div class="table-wrap"><table><thead><tr><th aria-label="Modifica"></th><th>Data</th><th>Turno</th><th>Note</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody id="revenueTable"></tbody></table></div><div id="revenueEmpty" class="empty hidden"></div></div>
-        </section>
-
-        <section id="view-expenses" class="view">
-          <div class="section-actions"><div><h2>Spese</h2><p class="muted">Costi sostenuti e pianificati. Usa “− Spesa” nell'header per aggiungere un movimento.</p></div></div>
-          <div id="expenseReminderBanner" class="reminder-banner hidden" role="status" aria-live="polite"></div>
-          <div id="expenseSummary" class="mini-kpis"></div>
-          <div class="card table-card"><div class="table-toolbar"><label>Giorno<input id="expenseDayFilter" type="date" required></label><label>Cerca nel giorno<input id="expenseSearch" type="search" placeholder="Categoria o nota"></label></div><div class="table-wrap"><table><thead><tr><th>Azioni</th><th>Data</th><th>Categoria</th><th>Stato</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody id="expenseTable"></tbody></table></div><div id="expenseEmpty" class="empty hidden"></div></div>
-        </section>
-
-        <section id="view-holidays" class="view">
-          <div class="section-actions"><div><h2>Ferie</h2><p class="muted">I periodi personali e i riposi obbligatori vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
-          <div id="holidaySummary" class="mini-kpis"></div>
-          <article class="card shift-calendar-card holiday-calendar-card">
-            <div class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO FERIE</p><h3 id="holidayCalendarTitle">Calendario mensile</h3></div><div class="calendar-navigation"><button id="holidayCalendarPrev" class="icon-btn calendar-arrow" type="button" aria-label="Mese precedente">‹</button><label class="calendar-month-picker"><span>Mese</span><input id="holidayCalendarMonth" type="month"></label><button id="holidayCalendarNext" class="icon-btn calendar-arrow" type="button" aria-label="Mese successivo">›</button></div></div>
-            <div class="calendar-legend"><span><i class="legend-swatch mandatory"></i>Ferie imposte</span><span><i class="legend-swatch personal"></i>Ferie personali</span></div>
-            <div class="calendar-scroll"><div class="calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="holidayCalendarGrid" class="shift-calendar-grid holiday-calendar-grid"></div></div>
-          </article>
-          <div class="card"><div id="holidayList" class="holiday-list"></div><div id="holidayEmpty" class="empty hidden"></div></div>
-        </section>
-
-        <section id="view-shifts" class="view">
-          <div class="section-actions"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027.</p></div></div>
-          <div class="card shift-controls">
-            <label>Tipo licenza<select id="shiftLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label>
-            <label>Numero licenza<input id="shiftLicenseInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label>
-            <label>Data di riferimento<input id="shiftDate" type="date" min="2026-01-10" max="2027-01-15"></label>
-            <button id="saveShiftLicense" class="primary" type="button">Salva e calcola</button>
-          </div>
-          <div id="shiftCurrent" class="shift-current"></div>
-          <article class="card shift-table-card"><div class="card-heading"><div><p class="eyebrow">PROGRAMMAZIONE</p><h3>Le settimane vicine</h3></div><span id="shiftGroupBadge" class="pill"></span></div><div class="table-wrap"><table><thead><tr><th>Settimana</th><th>Gruppo</th><th>Turno</th><th>Fascia turno</th><th>Orario del giorno</th></tr></thead><tbody id="shiftSchedule"></tbody></table></div></article>
-          <article class="card shift-calendar-card">
-            <div class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO TURNI E FERIE</p><h3 id="shiftCalendarTitle">Calendario mensile</h3></div><div class="calendar-navigation"><button id="calendarPrev" class="icon-btn calendar-arrow" type="button" aria-label="Mese precedente">‹</button><label class="calendar-month-picker"><span>Mese</span><input id="shiftCalendarMonth" type="month"></label><button id="calendarNext" class="icon-btn calendar-arrow" type="button" aria-label="Mese successivo">›</button></div></div>
-            <div class="calendar-legend"><span><i class="legend-swatch mandatory"></i>Ferie imposte</span><span><i class="legend-swatch personal"></i>Ferie personali</span><span><i class="legend-swatch shift"></i>Turno previsto</span></div>
-            <div class="calendar-scroll"><div class="calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="shiftCalendarGrid" class="shift-calendar-grid"></div></div>
-          </article>
-          <div class="shift-info-grid">
-            <article class="card"><p class="eyebrow">LOGICA APPLICATA</p><h3>Gruppi e rotazione</h3><p class="muted">La licenza viene associata a uno dei gruppi 01-20; la tabella settimanale assegna poi il gruppo ai turni T1-T7. Nei nuovi incassi il turno viene proposto automaticamente in una lista sempre modificabile.</p></article>
-            <article class="card"><p class="eyebrow">SECONDA GUIDA</p><h3>Riposi condivisi</h3><p class="muted">I riposi e le riduzioni di organico restano obbligatori per prima e seconda guida. Il compenso contrattualizzato può essere configurato nelle Impostazioni e confluisce nel Consuntivo.</p></article>
-          </div>
-        </section>
-
-        <section id="view-report" class="view">
-          <div class="section-actions report-actions"><div><h2>Consuntivo fiscale</h2><p class="muted">Stima dell'accantonamento su ricavi taxi e reddito della seconda guida.</p></div><div class="report-export-actions"><button id="printSummaryReport" class="secondary" type="button">⇩ PDF sintetico mensile</button><button id="printDetailedReport" class="primary" type="button">⇩ PDF dettagliato mensile</button></div></div>
-          <div class="card compact report-filter"><label>Anno<select id="reportYear"></select></label><label>Periodo<select id="reportMonth"><option value="all">Intero anno</option><option value="01">Gennaio</option><option value="02">Febbraio</option><option value="03">Marzo</option><option value="04">Aprile</option><option value="05">Maggio</option><option value="06">Giugno</option><option value="07">Luglio</option><option value="08">Agosto</option><option value="09">Settembre</option><option value="10">Ottobre</option><option value="11">Novembre</option><option value="12">Dicembre</option></select></label></div>
-          <div id="reportHero" class="report-hero"></div>
-          <div id="reportBreakdown" class="report-grid"></div>
-          <article class="card formula-card"><div><p class="eyebrow">COME VIENE CALCOLATO</p><h3>Dal fatturato all'accantonamento</h3></div><div id="formulaSteps" class="formula-steps"></div><p class="legal-note">Stima gestionale basata sulle impostazioni del profilo: verifica importi e aliquote con il tuo consulente fiscale.</p></article>
-          <section id="reportDetail" class="report-detail card"><div class="card-heading"><div><p class="eyebrow">DETTAGLIO DEL MESE</p><h3 id="reportDetailTitle">Movimenti del periodo</h3></div><span id="reportDetailCount" class="pill"></span></div><div id="reportDetailBody"></div></section>
-        </section>
-
-        <section id="view-settings" class="view">
-          <div class="section-actions"><div><h2>Impostazioni</h2><p class="muted">Personalizza il profilo e le ipotesi di calcolo.</p></div><button id="saveSettings" class="primary" type="button">Salva modifiche</button></div>
-          <div class="settings-grid">
-            <article class="card settings-card"><p class="eyebrow">PROFILO E TURNI</p><h3>Dati personali</h3><label>Nome visualizzato<input id="settingsName" type="text" maxlength="50"></label><label>Attività / descrizione<input id="settingsBusiness" type="text" maxlength="80" placeholder="Es. Taxi Roma"></label><label>Tipo licenza<select id="settingsLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label><label>Numero di licenza<input id="settingsLicense" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label><label>Gestione turni<select id="settingsShiftMode"><option value="official">Turnazione ufficiale</option><option value="morning">Bypass: solo mattina</option><option value="afternoon">Bypass: solo pomeriggio</option></select></label><label>Valuta<select id="settingsCurrency"><option value="EUR">Euro (€)</option></select></label></article>
-            <article class="card settings-card"><p class="eyebrow">REGIME FISCALE</p><h3>Aliquote personalizzate</h3><label>Anno di inizio attività<input id="settingsStartYear" type="number" min="1980" max="2100" step="1"></label><label>Aliquota primi 5 anni (%)<input id="settingsTaxRateFirst" type="number" min="0" max="100" step="0.1"></label><label>Aliquota dal 6° anno (%)<input id="settingsTaxRateAfter" type="number" min="0" max="100" step="0.1"></label><label>Coefficiente di redditività (%)<input id="settingsProfitability" type="number" min="0" max="100" step="0.1"></label><label>Aliquota INPS (%)<input id="settingsInpsRate" type="number" min="0" max="100" step="0.01"></label><label>Contributo INPS fisso annuo (€)<input id="settingsInpsFixed" type="number" min="0" step="0.01"></label><label class="toggle-row"><span>Escludi il contante dalla base imponibile</span><input id="settingsCardOnly" type="checkbox"></label></article>
-            <article class="card settings-card second-driver-card"><p class="eyebrow">SECONDA GUIDA</p><h3>Reddito contrattualizzato</h3><label class="toggle-row"><span>Seconda guida attiva</span><input id="settingsSecondDriver" type="checkbox"></label><label>Compenso mensile imponibile (€)<input id="settingsSecondDriverAmount" type="number" min="0" step="0.01" inputmode="decimal"></label><label>Parte mensile in contanti - non imponibile (€)<input id="settingsSecondDriverCashAmount" type="number" min="0" step="0.01" inputmode="decimal"></label><label>Anno assegnazioni<select id="settingsSecondDriverYear"></select></label><div><span class="settings-field-label">Mesi effettivamente assegnati</span><div id="secondDriverMonthGrid" class="month-assignment-grid"></div></div><div id="secondDriverAssignmentSummary" class="assignment-summary"></div><p class="muted">Nel Consuntivo entrambe le quote sono conteggiate solo per i mesi assegnati; la parte in contanti aumenta il disponibile ma non entra nell'imponibile.</p></article>
-            <article class="card settings-card reminder-settings-card"><p class="eyebrow">PROMEMORIA SPESE</p><h3>Scadenze pianificate</h3><label class="toggle-row"><span>Promemoria 5 giorni e 1 giorno prima</span><input id="settingsExpenseReminders" type="checkbox"></label><button id="enableExpenseNotifications" class="secondary" type="button">Attiva notifiche di sistema</button><p id="notificationStatus" class="muted"></p><p class="muted">I promemoria nell’app sono sempre verificati all’apertura. Le notifiche di sistema dipendono dai permessi del browser e, su iPhone, richiedono l’installazione dalla schermata Home.</p></article>
-            <article class="card settings-card"><p class="eyebrow">DATI</p><h3>Backup e ripristino</h3><p class="muted">Scarica una copia completa del profilo o importa un backup precedente.</p><div class="stack-actions"><button id="exportData" class="secondary" type="button">Esporta backup JSON</button><label class="file-button">Importa backup JSON<input id="importData" type="file" accept="application/json"></label><button id="loadDemo" class="text-btn danger" type="button">Carica dati dimostrativi</button><button id="deleteProfile" class="text-btn danger" type="button">Elimina questo profilo</button></div></article>
-          </div>
-        </section>
-      </main>
-    </div>
-
-    <nav class="bottom-nav" aria-label="Navigazione mobile">
-      <button class="nav-item active" data-view="dashboard"><span>⌂</span>Home</button><button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button><button class="nav-item quick" id="mobileQuick" type="button"><span>＋</span></button><button class="nav-item" data-view="expenses"><span>↘</span>Spese</button><button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
-    </nav>
+      <div id="content" class="content"></div>
+    </main>
   </div>
 
   <dialog id="entryDialog" class="modal">
     <form id="entryForm" method="dialog">
-      <div class="modal-head"><div><p id="modalKicker" class="eyebrow">MOVIMENTO</p><h2 id="modalTitle">Nuovo incasso</h2></div><button id="closeModal" class="icon-btn" type="button" aria-label="Chiudi">×</button></div>
-      <input id="entryId" type="hidden"><input id="entryType" type="hidden">
-      <div id="entryFields" class="form-grid"></div>
-      <div class="modal-actions"><button id="deleteEntry" class="text-btn danger hidden" type="button">Elimina</button><span></span><button id="cancelModal" class="secondary" type="button">Annulla</button><button class="primary" type="submit">Salva</button></div>
+      <div class="modal-head"><div><span id="entryEyebrow" class="eyebrow">Nuovo movimento</span><h2 id="entryTitle">Nuovo incasso</h2></div><button id="closeDialog" type="button" class="icon-btn">×</button></div>
+      <input id="entryId" type="hidden"><input id="entryKind" type="hidden">
+      <div class="form-grid">
+        <label>Data<input id="entryDate" type="date" required></label>
+        <label>Importo (€)<input id="entryAmount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0,00"></label>
+        <label id="incomeTypeField">Tipologia<select id="incomeType"><option>Carta</option><option>Contanti</option><option>Uber</option><option>FreeNow</option><option>ITTaxi</option></select></label>
+        <label id="expenseCategoryField" class="hidden">Categoria<select id="expenseCategory"><option>Carburante</option><option>Manutenzione</option><option>Canone 3570</option><option>Gomme</option><option>Assicurazione</option><option>Lavaggio</option><option>Pedaggi</option><option>Commercialista</option><option>Altro</option></select></label>
+        <label id="shiftField">Turno<select id="entryShift"><option>Mattina</option><option>Pomeriggio</option><option>Sera</option><option>Notte</option><option>Intero</option><option>Riposo</option></select></label>
+        <label id="expenseStatusField" class="hidden">Stato<select id="expenseStatus"><option value="paid">Pagata</option><option value="planned">Pianificata</option></select><small id="statusHint">Impostato automaticamente dalla data</small></label>
+        <label class="span-2">Note<textarea id="entryNotes" rows="3" placeholder="Aggiungi una nota facoltativa"></textarea></label>
+      </div>
+      <div class="modal-actions"><button id="deleteEntry" type="button" class="btn danger ghost hidden">Elimina</button><span class="spacer"></span><button id="cancelEntry" type="button" class="btn ghost">Annulla</button><button type="submit" class="btn primary">Salva</button></div>
     </form>
   </dialog>
 
-  <script src="shift-data.js"></script>
+  <dialog id="holidayDialog" class="modal compact">
+    <form id="holidayForm" method="dialog">
+      <div class="modal-head"><div><span class="eyebrow">Pianificazione</span><h2>Nuovo periodo di ferie</h2></div><button id="closeHolidayDialog" type="button" class="icon-btn">×</button></div>
+      <div class="form-grid"><label>Dal<input id="holidayStart" type="date" required></label><label>Al<input id="holidayEnd" type="date" required></label><label class="span-2">Descrizione<input id="holidayLabel" value="Ferie personali"></label></div>
+      <div class="modal-actions"><span class="spacer"></span><button type="button" id="cancelHoliday" class="btn ghost">Annulla</button><button type="submit" class="btn primary">Aggiungi</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
   <script src="app.js"></script>
 </body>
 </html>

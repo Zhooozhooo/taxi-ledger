@@ -1,15 +1,1 @@
-{
-  "name": "Taxi Ledger",
-  "short_name": "Taxi Ledger",
-  "description": "Incassi, spese, ferie e accantonamenti per taxi",
-  "start_url": "./",
-  "scope": "./",
-  "display": "standalone",
-  "background_color": "#f4f6f9",
-  "theme_color": "#0b1220",
-  "lang": "it-IT",
-  "icons": [
-    {"src":"icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
-    {"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
-  ]
-}
+{"name":"Taxi Ledger","short_name":"Taxi Ledger","description":"Gestione incassi, spese, turni, ferie e consuntivi per taxi.","lang":"it","start_url":"./","scope":"./","display":"standalone","background_color":"#f4f7fb","theme_color":"#0b1324","icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icon-512.png","sizes":"512x512","type":"image/png"}]}

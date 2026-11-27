@@ -1,692 +1,99 @@
-(() => {
-  'use strict';
-
-  const STORAGE_KEY = 'taxiLedger.accounts.v2';
-  const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.8.0';
-  const shiftRules = window.TAXI_SHIFT_RULES;
-  const $ = (s, root = document) => root.querySelector(s);
-  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
-  const pad = n => String(n).padStart(2, '0');
-  const localISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const today = localISO();
-  const currentMonth = today.slice(0, 7);
-  const currentYear = today.slice(0, 4);
-  const monthNames = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
-  const revenueShiftOptions = ['Mattina 1','Mattina 2','Intermedio','Pomeriggio 1','Pomeriggio 2','Seminotte','Notte','Mattina fissa','Pomeriggio fissa','Turno rosa','Turno spezzato','Mattina','Pomeriggio','Altro'];
-  const revenueMethods = {
-    card:{label:'Carta',fee:0,cardLike:true}, cash:{label:'Contanti',fee:0,cardLike:false},
-    uber:{label:'Uber',fee:7,cardLike:true}, freenow:{label:'FreeNow',fee:10,cardLike:true}, ittaxi:{label:'ITTaxi',fee:0,cardLike:true}
-  };
-  const revenueMethod = method => revenueMethods[method] || revenueMethods.cash;
-  const expenseCategories = ['Carburante','Canone','Manutenzione','Gomme','Assicurazione','Lavaggio','Pedaggi','Commercialista','Revisione','F24 Inps','F24 Irpef','F24 Inail','Altro'];
-  const expenseStatusMeta = {
-    paid:{label:'Pagata'}, planned:{label:'Pianificata'}, cancelled:{label:'Annullata'}
-  };
-  const expenseStatus = status => expenseStatusMeta[status] ? status : (status === 'planned' ? 'planned' : 'paid');
-  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-  const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const money = value => new Intl.NumberFormat('it-IT', {style:'currency', currency:'EUR'}).format(Number(value) || 0);
-  const pct = value => `${(Number(value) || 0).toLocaleString('it-IT', {maximumFractionDigits:1})}%`;
-  const parseDate = iso => new Date(`${iso}T12:00:00`);
-  const dateLabel = iso => iso ? parseDate(iso).toLocaleDateString('it-IT', {day:'2-digit', month:'short', year:'numeric'}) : '—';
-  const monthLabel = ym => parseDate(`${ym}-01`).toLocaleDateString('it-IT', {month:'long', year:'numeric'});
-  const daysInclusive = (start, end, weekdaysOnly = false) => {
-    let count = 0;
-    for (let d = parseDate(start), last = parseDate(end); d <= last; d.setDate(d.getDate() + 1)) {
-      if (!weekdaysOnly || (d.getDay() !== 0 && d.getDay() !== 6)) count++;
-    }
-    return count;
-  };
-
-  let store = loadStore();
-  let userEmail = localStorage.getItem(SESSION_KEY) || '';
-  let state = null;
-  let dashPeriod = 'day';
-  const dashValues = {day: today, month: currentMonth, year: currentYear};
-  let selectedSecondDriverYear = currentYear;
-  let shiftCalendarMonth = currentMonth;
-  let holidayCalendarMonth = currentMonth;
-  let recentMovementFilter = 'all';
-
-  function loadStore() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {accounts:{}}; }
-    catch { return {accounts:{}}; }
-  }
-  function persistStore() { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
-  function defaultData(name = '') {
-    return {
-      version: APP_VERSION,
-      revenues: [], expenses: [], holidays: [], reminderLog:{},
-      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, secondDriverCashAmount:0, secondDriverAssignments:{}, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true, expenseReminders:true}
-    };
-  }
-  function normalizeRevenue(item) {
-    const r={...item};
-    if(r.shift) return r;
-    const legacy=String(r.note||'').trim(), legacyMap={'Turno mattina':'Mattina','Turno pomeriggio':'Pomeriggio'};
-    if(legacyMap[legacy]) return {...r,shift:legacyMap[legacy],note:''};
-    if(revenueShiftOptions.includes(legacy)) return {...r,shift:legacy,note:''};
-    return {...r,shift:'',note:legacy};
-  }
-  function normalizeExpense(item) {
-    return {...item,status:expenseStatus(item?.status)};
-  }
-  function normalizeData(data, name = '') {
-    const base = defaultData(name);
-    const incomingSettings=data?.settings||{};
-    const assignments=incomingSettings.secondDriverAssignments && typeof incomingSettings.secondDriverAssignments==='object' && !Array.isArray(incomingSettings.secondDriverAssignments) ? incomingSettings.secondDriverAssignments : {};
-    return {
-      ...base, ...data,
-      revenues: Array.isArray(data?.revenues) ? data.revenues.map(normalizeRevenue) : [],
-      expenses: Array.isArray(data?.expenses) ? data.expenses.map(normalizeExpense) : [],
-      holidays: Array.isArray(data?.holidays) ? data.holidays : [],
-      reminderLog: data?.reminderLog && typeof data.reminderLog === 'object' && !Array.isArray(data.reminderLog) ? data.reminderLog : {},
-      settings: {...base.settings, ...incomingSettings, secondDriverAssignments:assignments, name: incomingSettings.name || name || base.settings.name}
-    };
-  }
-  function save() {
-    if (!userEmail || !state || !store.accounts[userEmail]) return;
-    state.version = APP_VERSION;
-    store.accounts[userEmail].data = state;
-    store.accounts[userEmail].name = state.settings.name;
-    persistStore();
-    $('#syncBadge').textContent = '● Salvato sul dispositivo';
-  }
-  function syncMandatoryHolidays() {
-    if (!state || !shiftRules) return;
-    const personal = state.holidays.filter(h => h.source !== 'QG/2926/2025');
-    const automatic = shiftRules.mandatoryRestPeriods(state.settings.license, state.settings.licenseType).map(h => ({
-      id:`system-${h.key}`, ...h, source:'QG/2926/2025', locked:true
-    }));
-    state.holidays = [...personal, ...automatic];
-  }
-  function shiftForDate(dateISO) {
-    if (!shiftRules || !state) return null;
-    return shiftRules.getShift(dateISO, state.settings.license, state.settings.shiftMode);
-  }
-  function suggestedRevenueShift(dateISO) {
-    const shift=shiftForDate(dateISO);
-    return shift ? shift.name : '';
-  }
-  async function hashPassword(password, salt) {
-    const bytes = new TextEncoder().encode(`${salt}:${password}`);
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  function toast(message) {
-    const el = $('#toast'); el.textContent = message; el.classList.add('show');
-    clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 2600);
-  }
-
-  function showAuth() {
-    $('#authView').classList.remove('hidden'); $('#appView').classList.add('hidden');
-  }
-  function enterApp() {
-    const account = store.accounts[userEmail];
-    if (!account) { localStorage.removeItem(SESSION_KEY); showAuth(); return; }
-    state = normalizeData(account.data, account.name);
-    syncMandatoryHolidays();
-    save();
-    $('#authView').classList.add('hidden'); $('#appView').classList.remove('hidden');
-    syncIdentity(); populateReportYears(); renderAll(); checkExpenseReminders();
-  }
-  function syncIdentity() {
-    const name = state.settings.name || store.accounts[userEmail].name || 'Utente';
-    $('#sidebarUserName').textContent = name;
-    $('#sidebarUserEmail').textContent = userEmail;
-    $('#userInitial').textContent = name.charAt(0).toUpperCase();
-    $('#welcomeTitle').textContent = `Buon lavoro, ${name.split(' ')[0]}`;
-    $('#todayChip').textContent = parseDate(today).toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long'});
-  }
-
-  $$('.auth-tab').forEach(btn => btn.addEventListener('click', () => {
-    $$('.auth-tab').forEach(x => x.classList.toggle('active', x === btn));
-    $('#loginForm').classList.toggle('hidden', btn.dataset.authTab !== 'login');
-    $('#registerForm').classList.toggle('hidden', btn.dataset.authTab !== 'register');
-  }));
-  $('#registerForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const name = $('#registerName').value.trim();
-    const email = $('#registerEmail').value.trim().toLowerCase();
-    const password = $('#registerPassword').value;
-    if (store.accounts[email]) return toast('Esiste già un profilo con questa email.');
-    const salt = uuid();
-    store.accounts[email] = {name, salt, hash:await hashPassword(password, salt), createdAt:new Date().toISOString(), data:defaultData(name)};
-    persistStore(); userEmail = email; localStorage.setItem(SESSION_KEY, email); enterApp(); toast('Profilo creato. Benvenuto!');
-  });
-  $('#loginForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const email = $('#loginEmail').value.trim().toLowerCase();
-    const account = store.accounts[email];
-    if (!account || account.hash !== await hashPassword($('#loginPassword').value, account.salt)) return toast('Email o password non corretti.');
-    userEmail = email; localStorage.setItem(SESSION_KEY, email); enterApp();
-  });
-  $('#logoutBtn').addEventListener('click', () => { save(); localStorage.removeItem(SESSION_KEY); userEmail=''; state=null; showAuth(); });
-
-  const viewInfo = {
-    dashboard:['PANORAMICA','Cruscotto'], revenues:['MOVIMENTI','Incassi'], expenses:['COSTI','Spese'],
-    holidays:['CALENDARIO','Ferie'], shifts:['PROGRAMMAZIONE','Turni'], report:['PIANIFICAZIONE','Consuntivo'], settings:['PROFILO','Impostazioni']
-  };
-  function navigate(view) {
-    $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-    $$('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-    $('#pageKicker').textContent = viewInfo[view][0]; $('#pageTitle').textContent = viewInfo[view][1];
-    window.scrollTo({top:0, behavior:'smooth'});
-    if (view === 'report') renderReport();
-    if (view === 'shifts') renderShifts();
-    $('.sidebar').classList.remove('open');
-  }
-  $$('.nav-item[data-view]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
-  $$('[data-view-link]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.viewLink)));
-  $('#menuBtn').addEventListener('click',()=>$('.sidebar').classList.toggle('open'));
-
-  function inPeriod(date, type, value) {
-    if (type === 'day') return date === value;
-    if (type === 'month') return date.startsWith(value);
-    return date.startsWith(String(value));
-  }
-  function totals(type, value) {
-    const revenues = state.revenues.filter(r => inPeriod(r.date, type, value));
-    const allExpenses = state.expenses.filter(r => inPeriod(r.date, type, value));
-    const expenses = allExpenses.filter(r => expenseStatus(r.status) === 'paid');
-    const plannedExpenses = allExpenses.filter(r => expenseStatus(r.status) === 'planned');
-    const cancelledExpenses = allExpenses.filter(r => expenseStatus(r.status) === 'cancelled');
-    const cash = revenues.filter(r => r.method === 'cash').reduce((s,r) => s + Number(r.amount), 0);
-    const card = revenues.filter(r => r.method === 'card').reduce((s,r) => s + Number(r.amount), 0);
-    const uber = revenues.filter(r => r.method === 'uber').reduce((s,r) => s + Number(r.amount), 0);
-    const freenow = revenues.filter(r => r.method === 'freenow').reduce((s,r) => s + Number(r.amount), 0);
-    const ittaxi = revenues.filter(r => r.method === 'ittaxi').reduce((s,r) => s + Number(r.amount), 0);
-    const cardLike = card + uber + freenow + ittaxi;
-    const platformFees = uber*.07 + freenow*.10;
-    const expenseTotal = expenses.reduce((s,r) => s + Number(r.amount), 0);
-    const plannedTotal = plannedExpenses.reduce((s,r) => s + Number(r.amount), 0);
-    const cancelledTotal = cancelledExpenses.reduce((s,r) => s + Number(r.amount), 0);
-    const revenueTotal = cash + cardLike;
-    const netRevenue = revenueTotal-platformFees;
-    const margin = netRevenue - expenseTotal;
-    return {revenues, allExpenses, expenses, plannedExpenses, cancelledExpenses, cash, card, uber, freenow, ittaxi, cardLike, platformFees, revenueTotal, netRevenue, expenseTotal, plannedTotal, cancelledTotal, margin};
-  }
-  function holidaySet(start, end) {
-    const set = new Set();
-    state.holidays.forEach(h => {
-      const a = parseDate(h.start > start ? h.start : start), b = parseDate(h.end < end ? h.end : end);
-      for (let d = a; d <= b; d.setDate(d.getDate()+1)) set.add(localISO(d));
-    });
-    return set;
-  }
-  function countWorkingDays(start, end) {
-    if (end < start) return 0;
-    const off = holidaySet(start, end); let n = 0;
-    for (let d = parseDate(start), last = parseDate(end); d <= last; d.setDate(d.getDate()+1)) {
-      const iso = localISO(d); if (d.getDay() !== 0 && d.getDay() !== 6 && !off.has(iso)) n++;
-    }
-    return n;
-  }
-  function periodBounds(type, value) {
-    if (type === 'day') return {start:value,end:value};
-    if (type === 'month') {
-      const [y,m] = value.split('-').map(Number); return {start:`${value}-01`, end:localISO(new Date(y,m,0,12))};
-    }
-    return {start:`${value}-01-01`, end:`${value}-12-31`};
-  }
-  function projection(type, value, data) {
-    const {start,end} = periodBounds(type,value);
-    if (type === 'day') return null;
-    const totalDays=countWorkingDays(start,end);
-    if (start > today) return {revenue:0,currentRevenue:0,averageRevenue:0,remainingRevenue:0,revenueDays:0,totalDays,remaining:totalDays,status:'future'};
-    const cutoff=today<end?today:end;
-    const actualRevenues=data.revenues.filter(r=>r.date>=start&&r.date<=cutoff);
-    const currentRevenue=actualRevenues.reduce((sum,r)=>sum+Number(r.amount),0);
-    const revenueDays=new Set(actualRevenues.map(r=>r.date)).size;
-    const averageRevenue=revenueDays?currentRevenue/revenueDays:0;
-    if (end < today) return {revenue:currentRevenue,currentRevenue,averageRevenue,remainingRevenue:0,revenueDays,totalDays,remaining:0,status:'closed'};
-    const tomorrowDate=parseDate(today); tomorrowDate.setDate(tomorrowDate.getDate()+1);
-    const tomorrow=localISO(tomorrowDate);
-    const remaining=tomorrow<=end?countWorkingDays(tomorrow,end):0;
-    const remainingRevenue=averageRevenue*remaining;
-    return {revenue:currentRevenue+remainingRevenue,currentRevenue,averageRevenue,remainingRevenue,revenueDays,totalDays,remaining,status:'live'};
-  }
-
-  $$('.period-tab').forEach(btn => btn.addEventListener('click', () => {
-    dashValues[dashPeriod] = $('#dashboardPicker').value;
-    dashPeriod = btn.dataset.period;
-    $$('.period-tab').forEach(x => x.classList.toggle('active', x === btn));
-    setupDashboardPicker(); renderDashboard();
-  }));
-  function setupDashboardPicker() {
-    const picker = $('#dashboardPicker');
-    if (dashPeriod === 'day') { picker.type='date'; picker.min=''; picker.max=''; $('#dashPickerLabel').childNodes[0].textContent='Data'; }
-    else if (dashPeriod === 'month') { picker.type='month'; picker.min=''; picker.max=currentMonth; $('#dashPickerLabel').childNodes[0].textContent='Mese'; }
-    else { picker.type='number'; picker.min='2000'; picker.max=currentYear; picker.step='1'; $('#dashPickerLabel').childNodes[0].textContent='Anno'; }
-    picker.value = dashValues[dashPeriod];
-  }
-  $('#dashboardPicker').addEventListener('change', e => { dashValues[dashPeriod] = e.target.value; renderDashboard(); });
-  function kpi(icon,label,value,sub,accent='') { return `<article class="kpi-card ${accent}"><div class="kpi-icon">${icon}</div><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></article>`; }
-  function renderDashboard() {
-    const value = dashValues[dashPeriod] || (dashPeriod==='day'?today:dashPeriod==='month'?currentMonth:currentYear);
-    const d = totals(dashPeriod,value), p = projection(dashPeriod,value,d);
-    const secondDriver = dashPeriod==='day' ? {count:0,income:0} : secondDriverForReport(dashPeriod==='month'?{type:'month',value}:{type:'year',value:String(value)});
-    const cardShare = d.revenueTotal ? d.cardLike/d.revenueTotal*100 : 0, cashShare = d.revenueTotal ? d.cash/d.revenueTotal*100 : 0;
-    const marginShare = d.revenueTotal ? d.margin/d.revenueTotal*100 : 0;
-    const overduePlanned = d.plannedExpenses.filter(x=>x.date<today).length;
-    let cards = kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
-    cards += kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
-    cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
-    cards += kpi('↘','SPESE SOSTENUTE',money(d.expenseTotal),`${d.expenses.length} ${d.expenses.length===1?'spesa pagata':'spese pagate'}`);
-    cards += kpi('◷','SPESE PIANIFICATE',money(d.plannedTotal),d.plannedExpenses.length?`${d.plannedExpenses.length} ${d.plannedExpenses.length===1?'scadenza':'scadenze'}${overduePlanned?` · ${overduePlanned} scadute`:''}`:'Nessuna spesa pianificata');
-    cards += kpi('◇','MARGINE EFFETTIVO',money(d.margin),`${pct(marginShare)} · incassi netti − spese pagate`);
-    if (dashPeriod!=='day') cards += kpi('♙','INTROITO SECONDA GUIDA',money(secondDriver.income),secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese':'mesi'} · imponibile ${money(secondDriver.taxableIncome)} · contanti ${money(secondDriver.cashIncome)}`:(state.settings.secondDriver?'Nessun mese assegnato':'Seconda guida non attiva'));
-    if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi');
-    $('#dashboardKpis').innerHTML = cards;
-    const proj = $('#projectionNote');
-    if (!p) proj.innerHTML = '<strong>Vista giornaliera.</strong> Seleziona una data per consultare o correggere lo storico.';
-    else if (p.status === 'live' && p.revenueDays) proj.innerHTML = `<strong>Proiezione totale incassi ${money(p.revenue)}:</strong> ${money(p.currentRevenue)} incassati ÷ ${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso = ${money(p.averageRevenue)} medi al giorno; ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno lavorativo restante':'giorni lavorativi restanti'} = ${money(p.remainingRevenue)} previsti. Weekend e ferie sono esclusi.`;
-    else if (p.status === 'live') proj.innerHTML = `<strong>Proiezione totale incassi non disponibile:</strong> non risultano ancora giorni con incassi nel periodo selezionato. Giorni lavorativi restanti: ${p.remaining}.`;
-    else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> ${p.revenueDays} ${p.revenueDays===1?'giorno distinto':'giorni distinti'} con incassi nel periodo concluso.`;
-    else proj.innerHTML = `<strong>Periodo futuro:</strong> totale non ancora disponibile; sono previsti ${p.totalDays} giorni lavorativi al netto delle ferie.`;
-    $('#revenueTotalBadge').textContent = money(d.revenueTotal);
-    const revenueTypes=[['Carta',d.card,0],['Contanti',d.cash,0],['Uber',d.uber,7],['FreeNow',d.freenow,10],['ITTaxi',d.ittaxi,0]].filter(x=>x[1]>0);
-    const revenueTypeRows=revenueTypes.map(([label,amount,fee],index)=>{const share=d.revenueTotal?amount/d.revenueTotal*100:0;return `<div class="type-row"><i class="type-dot type-color-${index%8}"></i><span>${label}${fee?` <small>fee ${fee}%</small>`:''}</span><div class="type-track"><i class="type-fill type-color-${index%8}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
-    const expenseTypes=new Map(); d.expenses.forEach(x=>expenseTypes.set(x.category||'Altro',(expenseTypes.get(x.category||'Altro')||0)+Number(x.amount)));
-    const expenseRows=[...expenseTypes.entries()].sort((a,b)=>b[1]-a[1]).map(([label,amount],index)=>{const share=d.expenseTotal?amount/d.expenseTotal*100:0;return `<div class="type-row"><i class="type-dot expense-color-${index%6}"></i><span>${esc(label)}</span><div class="type-track"><i class="type-fill expense-color-${index%6}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
-    $('#revenueMix').innerHTML = `<div class="mix-section"><span class="mix-section-title">Tipologie di incasso</span>${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div><div class="mix-section shift-type-mix"><span class="mix-section-title">Tipologie di spesa</span>${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
-    let movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.allExpenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date));
-    if(recentMovementFilter!=='all') movements=movements.filter(x=>x.kind===recentMovementFilter);
-    movements=movements.slice(0,6);
-    $('#recentMovementFilter').value=recentMovementFilter;
-    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>{const status=x.kind==='expense'?expenseStatus(x.status):'';return `<div class="movement ${x.kind} ${status}"><span class="movement-icon">${x.kind==='revenue'?'↗':status==='cancelled'?'×':status==='planned'?'◷':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.kind==='revenue'?revenueMethod(x.method).label:`${expenseStatusMeta[status].label} · ${x.method==='card'?'Carta':'Contanti'}`}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'&&status==='paid'?'−':x.kind==='revenue'?'+':''}${money(x.amount)}</span></div>`;}).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati per il filtro selezionato.</div>`;
-  }
-  $('#recentMovementFilter').addEventListener('change',e=>{recentMovementFilter=e.target.value;renderDashboard();});
-
-  function summaryCards(total, card, cash, noun='incassi') {
-    const cp = total ? card/total*100 : 0, hp = total ? cash/total*100 : 0;
-    return `<div class="mini-card"><span>Totale ${noun}</span><strong>${money(total)}</strong><small>${noun==='spese'?'sostenute nel periodo':'complessivi'}</small></div><div class="mini-card"><span>Carta</span><strong>${money(card)}</strong><small>${pct(cp)} del totale</small></div><div class="mini-card"><span>Contanti</span><strong>${money(cash)}</strong><small>${pct(hp)} del totale</small></div>`;
-  }
-  function daysUntil(dateISO) {
-    return Math.round((parseDate(dateISO)-parseDate(localISO()))/86400000);
-  }
-  function expenseReminderCandidates() {
-    if(!state?.settings?.expenseReminders) return [];
-    return state.expenses.filter(x=>expenseStatus(x.status)==='planned' && [5,1].includes(daysUntil(x.date))).sort((a,b)=>a.date.localeCompare(b.date));
-  }
-  function reminderMarkup(items) {
-    if(!items.length) return '';
-    return `<div class="reminder-content"><span class="reminder-icon">◷</span><div><strong>${items.length===1?'Promemoria spesa pianificata':'Promemoria spese pianificate'}</strong>${items.map(x=>{const days=daysUntil(x.date);return `<span>${esc(x.category||'Spesa')} · ${money(x.amount)} · ${days===1?'domani':'tra 5 giorni'} (${dateLabel(x.date)})</span>`;}).join('')}</div></div><button class="text-btn" type="button" data-view-link="expenses">Apri spese</button>`;
-  }
-  function renderExpenseReminders() {
-    const items=expenseReminderCandidates(), html=reminderMarkup(items);
-    ['expenseReminderBanner','globalReminderBanner'].forEach(id=>{const el=$('#'+id); if(!el)return; el.innerHTML=html; el.classList.toggle('hidden',!items.length);});
-  }
-  async function showExpenseNotification(item) {
-    const days=daysUntil(item.date), title=`Spesa pianificata ${days===1?'domani':'tra 5 giorni'}`;
-    const options={body:`${item.category||'Spesa'} · ${money(item.amount)} · ${dateLabel(item.date)}`,tag:`taxi-ledger-expense-${item.id}-${days}`,icon:'icon-192.png',badge:'icon-192.png',data:{view:'expenses'}};
-    try {
-      if('serviceWorker' in navigator && location.protocol.startsWith('http')) {const registration=await navigator.serviceWorker.ready; await registration.showNotification(title,options);}
-      else if('Notification' in window) new Notification(title,options);
-      return true;
-    } catch { return false; }
-  }
-  async function checkExpenseReminders({announce=true}={}) {
-    if(!state?.settings?.expenseReminders) {renderExpenseReminders();return;}
-    const items=expenseReminderCandidates(); renderExpenseReminders();
-    if(items.length&&announce) toast(items.length===1?`Promemoria: ${items[0].category} ${money(items[0].amount)} ${daysUntil(items[0].date)===1?'domani':'tra 5 giorni'}.`:`Hai ${items.length} spese pianificate in scadenza.`);
-    if(!items.length||!('Notification' in window)||Notification.permission!=='granted') return;
-    let changed=false;
-    for(const item of items) {
-      const days=daysUntil(item.date), key=`${item.id}:${item.date}:${days}`;
-      if(state.reminderLog[key]===localISO()) continue;
-      if(await showExpenseNotification(item)){state.reminderLog[key]=localISO();changed=true;}
-    }
-    if(changed) save();
-  }
-  function updateNotificationStatus() {
-    const el=$('#notificationStatus'); if(!el)return;
-    if(!('Notification' in window)) el.textContent='Le notifiche di sistema non sono supportate da questo browser; i promemoria restano visibili nell’app.';
-    else if(Notification.permission==='granted') el.textContent='Notifiche di sistema attive su questo dispositivo.';
-    else if(Notification.permission==='denied') el.textContent='Notifiche bloccate dal browser. Riabilitale dalle impostazioni del sito o dell’iPhone.';
-    else el.textContent='Autorizza le notifiche per ricevere il promemoria anche come avviso di sistema mentre l’app è attiva.';
-  }
-  function renderRevenues() {
-    const dateFilter=$('#revenueDayFilter'); if(!dateFilter.value)dateFilter.value=today;
-    const q = $('#revenueSearch').value.trim().toLowerCase(), day = dateFilter.value;
-    const rows = state.revenues.filter(r => r.date===day && (!q || `${r.shift} ${r.note} ${revenueMethod(r.method).label} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
-    const cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0), traced = rows.filter(r=>revenueMethod(r.method).cardLike).reduce((s,r)=>s+Number(r.amount),0);
-    const fees=rows.reduce((s,r)=>s+Number(r.amount)*revenueMethod(r.method).fee/100,0);
-    $('#revenueSummary').innerHTML = summaryCards(traced+cash,traced,cash).replace('Carta</span>','Tracciati</span>')+(fees?`<div class="mini-card fee-card"><span>Fee piattaforme</span><strong>− ${money(fees)}</strong><small>Uber 7% · FreeNow 10%</small></div>`:'');
-    $('#revenueTable').innerHTML = rows.map(r=>{const method=revenueMethod(r.method),fee=Number(r.amount)*method.fee/100;return `<tr><td><button class="edit-btn" data-edit="revenue" data-id="${r.id}" aria-label="Modifica incasso">✎</button></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.shift || 'Non indicato')}</strong></td><td>${esc(r.note || '—')}</td><td><span class="method ${r.method}">${method.label}</span>${fee?`<br><small class="fee-note">Fee − ${money(fee)}</small>`:''}</td><td class="num"><strong>${money(r.amount)}</strong>${fee?`<br><small class="fee-note">Netto ${money(Number(r.amount)-fee)}</small>`:''}</td></tr>`;}).join('');
-    $('#revenueEmpty').classList.toggle('hidden', rows.length>0); $('#revenueEmpty').innerHTML=`<strong>Nessun incasso il ${dateLabel(day)}</strong>Seleziona un altro giorno o aggiungi il primo movimento.`;
-  }
-  function renderExpenses() {
-    const dateFilter=$('#expenseDayFilter'); if(!dateFilter.value)dateFilter.value=today;
-    const q = $('#expenseSearch').value.trim().toLowerCase(), day = dateFilter.value;
-    const rows = state.expenses.filter(r => r.date===day && (!q || `${r.note} ${r.category} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
-    const paidRows=rows.filter(r=>expenseStatus(r.status)==='paid'), plannedRows=rows.filter(r=>expenseStatus(r.status)==='planned'), cancelledRows=rows.filter(r=>expenseStatus(r.status)==='cancelled');
-    const paid=paidRows.reduce((s,r)=>s+Number(r.amount),0), planned=plannedRows.reduce((s,r)=>s+Number(r.amount),0);
-    const card = paidRows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = paidRows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
-    $('#expenseSummary').innerHTML = `<div class="mini-card featured"><span>Spese sostenute</span><strong>${money(paid)}</strong><small>incluse nel margine</small></div><div class="mini-card planned-card"><span>Spese pianificate</span><strong>${money(planned)}</strong><small>${plannedRows.length} ${plannedRows.length===1?'scadenza':'scadenze'} · escluse dal margine</small></div><div class="mini-card"><span>Carta / contanti pagati</span><strong>${money(card)} / ${money(cash)}</strong><small>${pct(paid?card/paid*100:0)} / ${pct(paid?cash/paid*100:0)}</small></div><div class="mini-card cancelled-card"><span>Annullate</span><strong>${cancelledRows.length}</strong><small>non conteggiate</small></div>`;
-    $('#expenseTable').innerHTML = rows.map(r=>{const status=expenseStatus(r.status),meta=expenseStatusMeta[status];return `<tr class="expense-row ${status}"><td><div class="expense-actions"><button class="edit-btn" data-edit="expense" data-id="${r.id}" aria-label="Modifica spesa">✎</button>${status==='planned'?`<button class="pay-btn" data-expense-status="paid" data-id="${r.id}" type="button">Segna pagata</button>`:''}</div></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.category)}</strong><br><small class="muted">${esc(r.note||'')}</small></td><td><span class="state ${status}">${meta.label}</span></td><td><span class="method ${r.method}">${r.method==='card'?'Carta':'Contanti'}</span></td><td class="num"><strong>${money(r.amount)}</strong></td></tr>`;}).join('');
-    $('#expenseEmpty').classList.toggle('hidden', rows.length>0); $('#expenseEmpty').innerHTML=`<strong>Nessuna spesa il ${dateLabel(day)}</strong>Seleziona un altro giorno o aggiungi il primo costo.`;
-    renderExpenseReminders();
-  }
-  ['revenueSearch','revenueDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderRevenues));
-  ['expenseSearch','expenseDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderExpenses));
-  $('#expenseTable').addEventListener('click',e=>{
-    const button=e.target.closest('[data-expense-status]'); if(!button)return;
-    const item=state.expenses.find(x=>x.id===button.dataset.id); if(!item)return;
-    item.status=button.dataset.expenseStatus; save(); renderAll(); toast('Spesa segnata come pagata e inclusa nel margine.');
-  });
-
-  function shiftDateLabel(start,end) {
-    const a=parseDate(start), b=parseDate(end);
-    return `${a.toLocaleDateString('it-IT',{day:'2-digit',month:'short'})} - ${b.toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'})}`;
-  }
-  function holidaysForDate(dateISO) {
-    return state.holidays.filter(h=>h.start<=dateISO&&h.end>=dateISO);
-  }
-  function renderShiftCalendar() {
-    const [year,month]=shiftCalendarMonth.split('-').map(Number), first=new Date(year,month-1,1,12), days=new Date(year,month,0,12).getDate();
-    const offset=(first.getDay()+6)%7, total=42, cells=[];
-    $('#shiftCalendarMonth').value=shiftCalendarMonth;
-    const title=monthLabel(shiftCalendarMonth); $('#shiftCalendarTitle').textContent=title.charAt(0).toUpperCase()+title.slice(1);
-    for(let index=0;index<total;index++) {
-      const day=index-offset+1;
-      if(day<1||day>days) { cells.push('<div class="calendar-day outside" aria-hidden="true"></div>'); continue; }
-      const dateISO=`${year}-${pad(month)}-${pad(day)}`, holidays=holidaysForDate(dateISO), shift=shiftForDate(dateISO);
-      const mandatory=holidays.some(h=>h.locked), personal=holidays.some(h=>!h.locked), classes=['calendar-day'];
-      if(dateISO===today) classes.push('today'); if(mandatory) classes.push('has-mandatory'); if(personal) classes.push('has-personal');
-      const holidayChips=holidays.slice(0,2).map(h=>`<span class="calendar-event ${h.locked?'mandatory':'personal'}" title="${esc(h.name)}">${h.locked?'Riposo imposto':esc(h.name)}</span>`).join('');
-      const extra=holidays.length>2?`<span class="calendar-more">+${holidays.length-2}</span>`:'';
-      const shiftChip=shift?`<span class="calendar-shift" title="${esc(shift.name)} · ${esc(shift.hours)}">${shift.turn?`T${shift.turn} · `:''}${esc(shift.name)}</span>`:'';
-      cells.push(`<button class="${classes.join(' ')}" type="button" data-calendar-date="${dateISO}" aria-label="${dateLabel(dateISO)}${holidays.length?`, ${holidays.map(h=>h.name).join(', ')}`:''}"><span class="calendar-day-number">${day}</span><div class="calendar-events">${holidayChips}${extra}${shiftChip}</div></button>`);
-    }
-    $('#shiftCalendarGrid').innerHTML=cells.join('');
-  }
-  function moveShiftCalendar(delta) {
-    const [year,month]=shiftCalendarMonth.split('-').map(Number), date=new Date(year,month-1+delta,1,12);
-    shiftCalendarMonth=`${date.getFullYear()}-${pad(date.getMonth()+1)}`; renderShiftCalendar();
-  }
-  $('#calendarPrev').addEventListener('click',()=>moveShiftCalendar(-1));
-  $('#calendarNext').addEventListener('click',()=>moveShiftCalendar(1));
-  $('#shiftCalendarMonth').addEventListener('change',e=>{if(e.target.value){shiftCalendarMonth=e.target.value;renderShiftCalendar();}});
-  $('#shiftCalendarGrid').addEventListener('click',e=>{
-    const cell=e.target.closest('[data-calendar-date]'); if(!cell)return;
-    const date=cell.dataset.calendarDate;
-    if(date>=shiftRules.SCHEDULE_START&&date<=shiftRules.SCHEDULE_END){$('#shiftDate').value=date;renderShifts();$('#shiftCurrent').scrollIntoView({behavior:'smooth',block:'center'});}
-  });
-  function renderShifts() {
-    const s=state.settings;
-    $('.shift-table-card').classList.toggle('bypass',s.shiftMode!=='official');
-    renderShiftCalendar();
-    $('#shiftLicenseInput').value=s.license||'';
-    $('#shiftLicenseType').value=s.licenseType||'ordinary';
-    const dateInput=$('#shiftDate');
-    if(!dateInput.value) dateInput.value=today<shiftRules.SCHEDULE_START?shiftRules.SCHEDULE_START:today>shiftRules.SCHEDULE_END?shiftRules.SCHEDULE_END:today;
-    const selected=dateInput.value;
-    const shift=shiftRules.getShift(selected,s.license,s.shiftMode);
-    if(!s.license) {
-      $('#shiftCurrent').innerHTML='<div class="empty card"><strong>Inserisci il numero di licenza</strong>Salvalo qui o nelle Impostazioni per calcolare gruppo, turno e riposi obbligatori.</div>';
-      $('#shiftGroupBadge').textContent='Licenza non impostata'; $('#shiftSchedule').innerHTML=''; return;
-    }
-    if(!shift) {
-      $('#shiftCurrent').innerHTML=`<div class="empty card"><strong>Nessun turno calcolabile</strong>La data deve essere compresa tra ${dateLabel(shiftRules.SCHEDULE_START)} e ${dateLabel(shiftRules.SCHEDULE_END)}.</div>`;
-      $('#shiftGroupBadge').textContent=`Licenza ${s.license}`; $('#shiftSchedule').innerHTML=''; return;
-    }
-    const turnText=shift.turn?`T${shift.turn} · ${shift.name}`:shift.name;
-    $('#shiftCurrent').innerHTML=`<article class="shift-hero-card"><div><p class="eyebrow">TURNO DEL ${dateLabel(selected).toUpperCase()}</p><h3>${esc(turnText)}</h3><p>${shift.mode==='official'?`Gruppo ${pad(shift.group)} · settimana ${dateLabel(shift.weekStart)} - ${dateLabel(shift.weekEnd)}`:'Bypass della turnazione ufficiale attivo'}</p></div><aside><span>Fascia turno</span><strong>${esc(shift.broad)}</strong><small>${esc(shift.hours)}</small></aside></article>`;
-    $('#shiftGroupBadge').textContent=`Licenza ${s.license} · Gruppo ${pad(shift.group)}`;
-    if(s.shiftMode!=='official') {
-      $('#shiftSchedule').innerHTML=`<tr><td colspan="5"><div class="empty"><strong>Turnazione bypassata</strong>Le note dei nuovi incassi saranno proposte come “Turno ${shift.broad.toLowerCase()}”.</div></td></tr>`; return;
-    }
-    const selectedWeek=shiftRules.saturdayFor(selected), selectedOffset=Math.round((parseDate(selected)-parseDate(selectedWeek))/86400000);
-    const rows=[];
-    for(let i=-1;i<=5;i++) {
-      const weekStart=shiftRules.addDays(selectedWeek,i*7), rowDate=shiftRules.addDays(weekStart,selectedOffset);
-      if(rowDate<shiftRules.SCHEDULE_START||rowDate>shiftRules.SCHEDULE_END) continue;
-      const item=shiftRules.getShift(rowDate,s.license,'official');
-      rows.push(`<tr class="${i===0?'current-week':''}"><td>${shiftDateLabel(item.weekStart,item.weekEnd)}</td><td>${pad(item.group)}</td><td><strong>T${item.turn}</strong> · ${esc(item.name)}</td><td><span class="shift-band ${item.broad.toLowerCase()}">${esc(item.broad)}</span></td><td>${esc(item.hours)}</td></tr>`);
-    }
-    $('#shiftSchedule').innerHTML=rows.join('');
-  }
-  $('#shiftDate').addEventListener('change',renderShifts);
-  $('#saveShiftLicense').addEventListener('click',()=>{
-    const license=Number.parseInt($('#shiftLicenseInput').value,10);
-    if(!license||license<1) return toast('Inserisci un numero di licenza valido.');
-    state.settings.license=license; state.settings.licenseType=$('#shiftLicenseType').value;
-    syncMandatoryHolidays(); save(); renderAll(); toast('Licenza e riposi obbligatori aggiornati.');
-  });
-
-  function renderHolidays() {
-    const rows = [...state.holidays].sort((a,b)=>a.start.localeCompare(b.start));
-    const yearRows = rows.filter(h=>h.end>=`${currentYear}-01-01`&&h.start<=`${currentYear}-12-31`);
-    const plannedDays=holidaySet(`${currentYear}-01-01`,`${currentYear}-12-31`);
-    const netDays=[...plannedDays].filter(x=>{const d=parseDate(x).getDay(); return d!==0&&d!==6;}).length;
-    const imposed=yearRows.filter(h=>h.locked).length;
-    const next = rows.find(h=>h.end>=today);
-    $('#holidaySummary').innerHTML = `<div class="mini-card featured"><span>Totale giorni pianificati ${currentYear}</span><strong>${plannedDays.size}</strong><small>giorni unici, inclusi i riposi imposti</small></div><div class="mini-card"><span>Giorni feriali esclusi</span><strong>${netDays}</strong><small>non usati nelle proiezioni</small></div><div class="mini-card"><span>Riposi imposti</span><strong>${imposed}</strong><small>periodi da QG/2926/2025</small></div><div class="mini-card"><span>Prossimo periodo</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
-    $('#holidayList').innerHTML = rows.map(h=>`<div class="holiday-item ${h.locked?'mandatory':''}"><span class="holiday-icon">${h.locked?'◆':'☀'}</span><div><h4>${esc(h.name)} ${h.locked?'<span class="mandatory-badge">Imposta</span>':''}</h4><p>${dateLabel(h.start)} → ${dateLabel(h.end)}${h.note?` · ${esc(h.note)}`:''}</p></div><span class="days-badge">${daysInclusive(h.start,h.end)} giorni</span>${h.locked?'<span class="lock-mark" title="Periodo automatico">🔒</span>':`<button class="edit-btn" data-edit="holiday" data-id="${h.id}" aria-label="Modifica ferie">✎</button>`}</div>`).join('');
-    $('#holidayEmpty').classList.toggle('hidden', rows.length>0); $('#holidayEmpty').innerHTML='<strong>Nessun periodo di ferie</strong>Aggiungilo per rendere più accurate le proiezioni.';
-    renderHolidayCalendar();
-  }
-
-  function renderHolidayCalendar() {
-    const [year,month]=holidayCalendarMonth.split('-').map(Number), first=new Date(year,month-1,1,12), days=new Date(year,month,0,12).getDate();
-    const offset=(first.getDay()+6)%7, cells=[];
-    $('#holidayCalendarMonth').value=holidayCalendarMonth;
-    const title=monthLabel(holidayCalendarMonth); $('#holidayCalendarTitle').textContent=title.charAt(0).toUpperCase()+title.slice(1);
-    for(let index=0;index<42;index++) {
-      const day=index-offset+1;
-      if(day<1||day>days){cells.push('<div class="calendar-day outside" aria-hidden="true"></div>');continue;}
-      const dateISO=`${year}-${pad(month)}-${pad(day)}`, holidays=holidaysForDate(dateISO), mandatory=holidays.some(h=>h.locked), personal=holidays.some(h=>!h.locked);
-      const classes=['calendar-day']; if(dateISO===today)classes.push('today'); if(mandatory)classes.push('has-mandatory'); if(personal)classes.push('has-personal');
-      const events=holidays.slice(0,3).map(h=>`<span class="calendar-event ${h.locked?'mandatory':'personal'}" title="${esc(h.name)}">${h.locked?'Riposo imposto':esc(h.name)}</span>`).join('');
-      const extra=holidays.length>3?`<span class="calendar-more">+${holidays.length-3}</span>`:'';
-      cells.push(`<button class="${classes.join(' ')}" type="button" data-holiday-date="${dateISO}" aria-label="${dateLabel(dateISO)}${holidays.length?`, ${holidays.map(h=>h.name).join(', ')}`:''}"><span class="calendar-day-number">${day}</span><div class="calendar-events">${events}${extra}</div></button>`);
-    }
-    $('#holidayCalendarGrid').innerHTML=cells.join('');
-  }
-  function moveHolidayCalendar(delta) {
-    const [year,month]=holidayCalendarMonth.split('-').map(Number), date=new Date(year,month-1+delta,1,12);
-    holidayCalendarMonth=`${date.getFullYear()}-${pad(date.getMonth()+1)}`; renderHolidayCalendar();
-  }
-  $('#holidayCalendarPrev').addEventListener('click',()=>moveHolidayCalendar(-1));
-  $('#holidayCalendarNext').addEventListener('click',()=>moveHolidayCalendar(1));
-  $('#holidayCalendarMonth').addEventListener('change',e=>{if(e.target.value){holidayCalendarMonth=e.target.value;renderHolidayCalendar();}});
-  $('#holidayCalendarGrid').addEventListener('click',e=>{
-    const cell=e.target.closest('[data-holiday-date]'); if(!cell)return;
-    const date=cell.dataset.holidayDate, personal=holidaysForDate(date).find(h=>!h.locked);
-    if(personal) return openEntry('holiday',personal.id);
-    openEntry('holiday');
-    $('#entryFields [name="start"]').value=date; $('#entryFields [name="end"]').value=date;
-  });
-
-  function reportFilter() {
-    const year=$('#reportYear').value||currentYear, month=$('#reportMonth').value;
-    return month==='all' ? {type:'year',value:year,label:year,months:12} : {type:'month',value:`${year}-${month}`,label:monthLabel(`${year}-${month}`),months:1};
-  }
-  function assignedSecondDriverMonths(year) {
-    const raw=state.settings.secondDriverAssignments?.[String(year)];
-    if(!Array.isArray(raw)) return [];
-    return [...new Set(raw.map(x=>String(x).padStart(2,'0')).filter(x=>/^(0[1-9]|1[0-2])$/.test(x)))].sort();
-  }
-  function secondDriverForReport(filter) {
-    const year=String(filter.value).slice(0,4), assigned=assignedSecondDriverMonths(year);
-    const included=filter.type==='year'?assigned:assigned.filter(month=>month===filter.value.slice(5,7));
-    const active=!!state.settings.secondDriver;
-    const count=active?included.length:0, taxableIncome=count*Number(state.settings.secondDriverAmount||0), cashIncome=count*Number(state.settings.secondDriverCashAmount||0);
-    return {year,assigned,included,count,taxableIncome,cashIncome,income:taxableIncome+cashIncome};
-  }
-  function populateReportYears() {
-    const years = new Set([currentYear]);
-    state.revenues.forEach(x=>years.add(x.date.slice(0,4))); state.expenses.forEach(x=>years.add(x.date.slice(0,4)));
-    Object.keys(state.settings.secondDriverAssignments||{}).forEach(y=>years.add(String(y)));
-    for(let y=Number(currentYear)-3;y<=Number(currentYear);y++) years.add(String(y));
-    const current=$('#reportYear').value||currentYear;
-    $('#reportYear').innerHTML=[...years].sort((a,b)=>b-a).map(y=>`<option ${y===current?'selected':''}>${y}</option>`).join('');
-  }
-  function renderReport() {
-    const f=reportFilter(), d=totals(f.type,f.value), s=state.settings;
-    const reportYear=Number(f.value.slice(0,4)), activityYear=Math.max(1,reportYear-Number(s.startYear||reportYear)+1);
-    const effectiveTaxRate=activityYear<=5?Number(s.taxRateFirst??s.taxRate??5):Number(s.taxRateAfter??10);
-    const secondDriver=secondDriverForReport(f), secondDriverIncome=secondDriver.income;
-    const totalIncome=d.netRevenue+secondDriverIncome;
-    const grossBase = (s.cardOnly ? d.cardLike : d.revenueTotal) + secondDriver.taxableIncome;
-    const taxableBase = grossBase * Number(s.profitability)/100;
-    const variableInps = taxableBase * Number(s.inpsRate)/100;
-    const fixedInps = Number(s.inpsFixed||0) * f.months/12;
-    const inps = variableInps + fixedInps;
-    const afterInps = Math.max(0,taxableBase-inps);
-    const tax = afterInps * effectiveTaxRate/100;
-    const reserve = inps+tax;
-    const net = totalIncome-d.expenseTotal-reserve;
-    $('#reportHero').innerHTML=`<div><p class="eyebrow">ACCANTONAMENTO STIMATO · ${esc(f.label).toUpperCase()}</p><h3>${money(reserve)}</h3><p>INPS e imposta sostitutiva calcolati sulla sola base imponibile. Disponibile stimato dopo fee, costi e accantonamento: <strong>${money(net)}</strong>.</p></div><aside><div><span>Incassi taxi lordi</span><strong>${money(d.revenueTotal)}</strong></div>${d.platformFees?`<div><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}${s.secondDriver?`<div><span>Seconda guida imponibile</span><strong>+ ${money(secondDriver.taxableIncome)}</strong></div><div><span>Seconda guida contanti</span><strong>+ ${money(secondDriver.cashIncome)}</strong></div>`:''}<div><span>Spese pagate</span><strong>− ${money(d.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>− ${money(reserve)}</strong></div></aside>`;
-    const assignmentText=!s.secondDriver?'Non attiva nelle impostazioni':secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese assegnato':'mesi assegnati'}`:f.type==='month'?'Mese non assegnato':'Nessun mese assegnato nell’anno';
-    $('#reportBreakdown').innerHTML=`<div class="report-card"><span>Ricavi tracciati</span><strong>${money(d.cardLike)}</strong><small>Carta, Uber, FreeNow e ITTaxi · inclusi nella base</small></div><div class="report-card"><span>Ricavi contanti</span><strong>${money(d.cash)}</strong><small>${s.cardOnly?'Esclusi':'Inclusi'} dalla base</small></div><div class="report-card"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong><small>Uber 7% · FreeNow 10%</small></div><div class="report-card"><span>Seconda guida imponibile</span><strong>${money(secondDriver.taxableIncome)}</strong><small>${assignmentText}${secondDriver.count?' · incluso nella base':''}</small></div><div class="report-card"><span>Seconda guida contanti</span><strong>${money(secondDriver.cashIncome)}</strong><small>${assignmentText} · sempre escluso dalla base</small></div><div class="report-card"><span>Costo INPS</span><strong>${money(inps)}</strong><small>${pct(s.inpsRate)} sulla base + quota fissa</small></div><div class="report-card"><span>Imposta sostitutiva</span><strong>${money(tax)}</strong><small>${pct(effectiveTaxRate)} · anno ${activityYear} di attività</small></div>`;
-    $('#formulaSteps').innerHTML=`<div class="formula-step"><i>1</i><span>Ricavi imponibili (${s.cardOnly?'tracciati':'tutti'} + seconda guida imponibile)</span><strong>${money(grossBase)}</strong></div><div class="formula-step"><i>2</i><span>Base imponibile × coefficiente ${pct(s.profitability)}</span><strong>${money(taxableBase)}</strong></div><div class="formula-step"><i>3</i><span>INPS variabile ${pct(s.inpsRate)} + quota fissa ${money(fixedInps)}</span><strong>− ${money(inps)}</strong></div><div class="formula-step"><i>4</i><span>Base dopo deduzione INPS</span><strong>${money(afterInps)}</strong></div><div class="formula-step"><i>5</i><span>Imposta sostitutiva ${pct(effectiveTaxRate)} (anno ${activityYear})</span><strong>${money(tax)}</strong></div>`;
-    renderReportDetail(f,d,secondDriver,reserve,net);
-  }
-  function renderReportDetail(filter,data,secondDriver,reserve,net) {
-    const revenues=[...data.revenues].sort((a,b)=>a.date.localeCompare(b.date));
-    const expenses=[...data.expenses].sort((a,b)=>a.date.localeCompare(b.date));
-    $('#reportDetailTitle').textContent=filter.type==='month'?`Movimenti di ${filter.label}`:'Seleziona un mese per l’esportazione dettagliata';
-    $('#reportDetailCount').textContent=`${revenues.length+expenses.length} movimenti`;
-    const revenueRows=revenues.length?revenues.map(r=>{const method=revenueMethod(r.method),fee=Number(r.amount)*method.fee/100;return `<tr><td>${dateLabel(r.date)}</td><td>${esc(r.shift||'Non indicato')}</td><td>${esc(r.note||'—')}</td><td>${method.label}${fee?` · fee ${money(fee)}`:''}</td><td class="num">${money(r.amount)}</td></tr>`;}).join(''):'<tr><td colspan="5" class="muted">Nessun incasso nel mese.</td></tr>';
-    const expenseRows=expenses.length?expenses.map(x=>`<tr><td>${dateLabel(x.date)}</td><td>${esc(x.category||'Spesa')}</td><td>${esc(x.note||'—')}</td><td>${x.status==='planned'?'Pianificata':'Pagata'} · ${x.method==='card'?'Carta':'Contanti'}</td><td class="num">${money(x.amount)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Nessuna spesa pagata nel mese.</td></tr>';
-    $('#reportDetailBody').innerHTML=`<div class="detail-summary"><div><span>Incassi taxi lordi</span><strong>${money(data.revenueTotal)}</strong><small>Fee ${money(data.platformFees)}</small></div><div><span>Seconda guida imponibile</span><strong>${money(secondDriver.taxableIncome)}</strong></div><div><span>Seconda guida contanti</span><strong>${money(secondDriver.cashIncome)}</strong><small>Non imponibile</small></div><div><span>Spese pagate</span><strong>${money(data.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>${money(reserve)}</strong></div><div><span>Disponibile stimato</span><strong>${money(net)}</strong></div></div><div class="detail-table-block"><h4>Incassi</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turno</th><th>Note</th><th>Tipologia</th><th class="num">Importo lordo</th></tr></thead><tbody>${revenueRows}</tbody></table></div></div><div class="detail-table-block"><h4>Spese pagate</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Categoria</th><th>Note</th><th>Stato e metodo</th><th class="num">Importo</th></tr></thead><tbody>${expenseRows}</tbody></table></div></div>`;
-  }
-  $('#reportYear').addEventListener('change',renderReport); $('#reportMonth').addEventListener('change',renderReport);
-  function printMonthlyReport(mode) {
-    const filter=reportFilter();
-    if(filter.type!=='month') return toast('Seleziona un mese prima di esportare il consuntivo.');
-    const old=document.title; document.title=`Taxi Ledger - Consuntivo ${mode==='detail'?'dettagliato':'sintetico'} - ${filter.label}`;
-    document.body.classList.remove('print-summary','print-detail'); document.body.classList.add(mode==='detail'?'print-detail':'print-summary');
-    window.print();
-    setTimeout(()=>{document.title=old;document.body.classList.remove('print-summary','print-detail');},700);
-  }
-  $('#printSummaryReport').addEventListener('click',()=>printMonthlyReport('summary'));
-  $('#printDetailedReport').addEventListener('click',()=>printMonthlyReport('detail'));
-
-  function populateSecondDriverYears() {
-    const years=new Set([currentYear,selectedSecondDriverYear]);
-    Object.keys(state.settings.secondDriverAssignments||{}).forEach(y=>years.add(String(y)));
-    state.revenues.forEach(x=>years.add(x.date.slice(0,4))); state.expenses.forEach(x=>years.add(x.date.slice(0,4)));
-    for(let y=Number(currentYear)-3;y<=Number(currentYear)+3;y++) years.add(String(y));
-    if(!years.has(selectedSecondDriverYear)) selectedSecondDriverYear=currentYear;
-    $('#settingsSecondDriverYear').innerHTML=[...years].sort((a,b)=>b-a).map(y=>`<option value="${y}" ${y===selectedSecondDriverYear?'selected':''}>${y}</option>`).join('');
-  }
-  function renderSecondDriverAssignments() {
-    const assigned=assignedSecondDriverMonths(selectedSecondDriverYear), amount=Number($('#settingsSecondDriverAmount').value)||0, cashAmount=Number($('#settingsSecondDriverCashAmount').value)||0;
-    $('#secondDriverMonthGrid').innerHTML=monthNames.map((name,index)=>{
-      const month=pad(index+1), checked=assigned.includes(month);
-      return `<label class="month-assignment ${checked?'selected':''}"><input type="checkbox" value="${month}" ${checked?'checked':''}><span>${name.slice(0,3)}</span></label>`;
-    }).join('');
-    $('#secondDriverAssignmentSummary').innerHTML=`<strong>${assigned.length} ${assigned.length===1?'mese assegnato':'mesi assegnati'} nel ${selectedSecondDriverYear}</strong><span>Imponibile ${money(assigned.length*amount)} · Contanti non imponibili ${money(assigned.length*cashAmount)} · Totale ${money(assigned.length*(amount+cashAmount))}</span>`;
-  }
-  $('#settingsSecondDriverYear').addEventListener('change',e=>{selectedSecondDriverYear=e.target.value; renderSecondDriverAssignments();});
-  $('#settingsSecondDriverAmount').addEventListener('input',renderSecondDriverAssignments);
-  $('#settingsSecondDriverCashAmount').addEventListener('input',renderSecondDriverAssignments);
-  $('#secondDriverMonthGrid').addEventListener('change',e=>{
-    if(!e.target.matches('input[type="checkbox"]')) return;
-    const month=e.target.value, assigned=new Set(assignedSecondDriverMonths(selectedSecondDriverYear));
-    e.target.checked?assigned.add(month):assigned.delete(month);
-    state.settings.secondDriverAssignments={...(state.settings.secondDriverAssignments||{}),[selectedSecondDriverYear]:[...assigned].sort()};
-    renderSecondDriverAssignments();
-  });
-
-  function settingsToForm() {
-    const s=state.settings;
-    $('#settingsName').value=s.name||''; $('#settingsBusiness').value=s.business||''; $('#settingsCurrency').value=s.currency||'EUR';
-    $('#settingsLicense').value=s.license||''; $('#settingsLicenseType').value=s.licenseType||'ordinary'; $('#settingsShiftMode').value=s.shiftMode||'official';
-    $('#settingsSecondDriver').checked=!!s.secondDriver; $('#settingsSecondDriverAmount').value=s.secondDriverAmount||0; $('#settingsSecondDriverCashAmount').value=s.secondDriverCashAmount||0;
-    $('#settingsStartYear').value=s.startYear||currentYear; $('#settingsTaxRateFirst').value=s.taxRateFirst??s.taxRate??5; $('#settingsTaxRateAfter').value=s.taxRateAfter??10; $('#settingsProfitability').value=s.profitability; $('#settingsInpsRate').value=s.inpsRate; $('#settingsInpsFixed').value=s.inpsFixed; $('#settingsCardOnly').checked=!!s.cardOnly;
-    $('#settingsExpenseReminders').checked=s.expenseReminders!==false; updateNotificationStatus();
-    populateSecondDriverYears(); renderSecondDriverAssignments();
-  }
-  $('#saveSettings').addEventListener('click',()=>{
-    const name=$('#settingsName').value.trim(); if(!name) return toast('Inserisci un nome visualizzato.');
-    const license=Number.parseInt($('#settingsLicense').value,10)||'';
-    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,secondDriverCashAmount:Number($('#settingsSecondDriverCashAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked,expenseReminders:$('#settingsExpenseReminders').checked};
-    syncMandatoryHolidays();
-    save(); syncIdentity(); renderAll(); checkExpenseReminders({announce:false}); toast('Impostazioni aggiornate.');
-  });
-  $('#enableExpenseNotifications').addEventListener('click',async()=>{
-    if(!('Notification' in window)){updateNotificationStatus();return toast('Notifiche di sistema non supportate da questo browser.');}
-    const permission=await Notification.requestPermission(); updateNotificationStatus();
-    if(permission==='granted'){state.settings.expenseReminders=true;$('#settingsExpenseReminders').checked=true;save();await checkExpenseReminders({announce:false});toast('Notifiche per le spese pianificate attivate.');}
-    else toast('Permesso notifiche non concesso. I promemoria restano visibili nell’app.');
-  });
-  $('#exportData').addEventListener('click',()=>{
-    const blob=new Blob([JSON.stringify({app:'Taxi Ledger',version:APP_VERSION,exportedAt:new Date().toISOString(),data:state},null,2)],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`taxi-ledger-backup-${today}.json`; a.click(); URL.revokeObjectURL(a.href);
-  });
-  $('#importData').addEventListener('change', async e=>{
-    const file=e.target.files[0]; if(!file)return;
-    try { const parsed=JSON.parse(await file.text()); const incoming=parsed.data||parsed; if(!Array.isArray(incoming.revenues)||!Array.isArray(incoming.expenses)) throw new Error(); if(!confirm('Sostituire i dati di questo profilo con il backup selezionato?')) return; state=normalizeData(incoming,state.settings.name); syncMandatoryHolidays(); save(); populateReportYears(); renderAll(); toast('Backup importato.'); }
-    catch { toast('Il file non è un backup Taxi Ledger valido.'); }
-    e.target.value='';
-  });
-  $('#deleteProfile').addEventListener('click',()=>{
-    if(!confirm(`Eliminare definitivamente il profilo ${userEmail} e tutti i suoi dati?`)) return;
-    delete store.accounts[userEmail]; persistStore(); localStorage.removeItem(SESSION_KEY); userEmail=''; state=null; showAuth(); toast('Profilo eliminato.');
-  });
-  $('#loadDemo').addEventListener('click',()=>{
-    if((state.revenues.length||state.expenses.length) && !confirm('Aggiungere i dati dimostrativi a quelli esistenti?')) return;
-    const day=n=>{const d=new Date(); d.setDate(d.getDate()-n); return localISO(d)};
-    state.revenues.push({id:uuid(),date:day(0),amount:145,method:'card',shift:'Mattina 1',note:'Servizi in città'},{id:uuid(),date:day(0),amount:82,method:'cash',shift:'Pomeriggio 1',note:''},{id:uuid(),date:day(1),amount:196,method:'card',shift:'Mattina 2',note:'Servizi aeroporto'},{id:uuid(),date:day(2),amount:114,method:'cash',shift:'Intermedio',note:''});
-    state.expenses.push({id:uuid(),date:day(1),amount:48,category:'Carburante',status:'paid',method:'card',note:'Rifornimento'},{id:uuid(),date:day(5),amount:220,category:'Manutenzione',status:'planned',method:'card',note:'Tagliando'});
-    save(); populateReportYears(); renderAll(); toast('Dati dimostrativi caricati.');
-  });
-
-  const fieldTemplates={
-    revenue:item=>{const suggested=item.id?(item.shift||''):suggestedRevenueShift(item.date||today),method=item.method||'card'; return `<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo lordo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Tipologia incasso<select name="method">${Object.entries(revenueMethods).map(([key,meta])=>`<option value="${key}" ${method===key?'selected':''}>${meta.label}${meta.fee?` - fee ${meta.fee}%`:''}</option>`).join('')}</select><small id="revenueMethodHint" class="field-hint"></small></label><label>Turno<select name="shift" required><option value="">Seleziona turno</option>${revenueShiftOptions.map(x=>`<option value="${esc(x)}" ${suggested===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small id="revenueShiftHint" class="field-hint"></small></label><label class="full">Note<textarea name="note" maxlength="250" placeholder="Dettagli facoltativi sull'incasso">${esc(item.note||'')}</textarea></label>`;},
-    expense:item=>{const status=expenseStatus(item.status),categories=item.category&&!expenseCategories.includes(item.category)?[item.category,...expenseCategories]:expenseCategories;return `<label>Data / scadenza<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${categories.map(x=>`<option ${item.category===x?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="planned" ${status==='planned'?'selected':''}>Pianificata</option><option value="paid" ${status==='paid'?'selected':''}>Pagata</option><option value="cancelled" ${status==='cancelled'?'selected':''}>Annullata</option></select><small class="field-hint">Solo le spese pagate riducono il margine.</small></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`;},
-    holiday:item=>`<label>Dal<input name="start" type="date" required value="${item.start||today}"></label><label>Al<input name="end" type="date" required value="${item.end||today}"></label><label class="full">Nome periodo<input name="name" required maxlength="80" value="${esc(item.name||'Ferie')}" placeholder="Es. Ferie estive"></label><label class="full">Nota<input name="note" maxlength="120" value="${esc(item.note||'')}" placeholder="Facoltativa"></label>`
-  };
-  function openEntry(type,id='') {
-    const list=type==='revenue'?state.revenues:type==='expense'?state.expenses:state.holidays;
-    const item=id?list.find(x=>x.id===id)||{}:{};
-    $('#entryType').value=type; $('#entryId').value=id; $('#entryFields').innerHTML=fieldTemplates[type](item);
-    $('#modalKicker').textContent=type==='holiday'?'CALENDARIO':'MOVIMENTO';
-    const names={revenue:'incasso',expense:'spesa',holiday:'periodo di ferie'};
-    const newLabels={revenue:'Nuovo incasso',expense:'Nuova spesa',holiday:'Nuovo periodo di ferie'};
-    $('#modalTitle').textContent=id?`Modifica ${names[type]}`:newLabels[type];
-    $('#deleteEntry').classList.toggle('hidden',!id); $('#entryDialog').showModal();
-    if(type==='revenue') {
-      const dateField=$('#entryFields [name="date"]'), shiftField=$('#entryFields [name="shift"]'), methodField=$('#entryFields [name="method"]'), amountField=$('#entryFields [name="amount"]');
-      let autoShift=id?'':suggestedRevenueShift(dateField.value);
-      const updateHint=()=>{
-        const shift=shiftForDate(dateField.value), hint=$('#revenueShiftHint');
-        hint.textContent=shift?(shift.turn?`Proposta da turnazione: T${shift.turn} ${shift.name}, gruppo ${pad(shift.group)}. Puoi scegliere un altro turno.`:`Proposta: ${shift.name}. Puoi scegliere un altro turno.`):'Nessun turno ufficiale disponibile: seleziona il turno dalla lista.';
-      };
-      dateField.addEventListener('change',()=>{const next=suggestedRevenueShift(dateField.value); if(!id&&(shiftField.value===''||shiftField.value===autoShift)) shiftField.value=next; autoShift=next; updateHint();});
-      const updateMethodHint=()=>{const meta=revenueMethod(methodField.value),amount=Number(amountField.value)||0,fee=amount*meta.fee/100;$('#revenueMethodHint').textContent=meta.fee?`Fee ${meta.fee}%: ${money(fee)} · netto previsto ${money(amount-fee)}.`:meta.cardLike?'Considerato come carta ai fini dell’imponibile.':'Contante escluso dall’imponibile se l’opzione fiscale è attiva.';};
-      methodField.addEventListener('change',updateMethodHint); amountField.addEventListener('input',updateMethodHint);
-      updateHint();
-      updateMethodHint();
-    }
-  }
-  $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickExpense').addEventListener('click',()=>openEntry('expense')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
-  $('#closeModal').addEventListener('click',()=>$('#entryDialog').close()); $('#cancelModal').addEventListener('click',()=>$('#entryDialog').close());
-  document.addEventListener('click',e=>{const btn=e.target.closest('[data-edit]'); if(btn) openEntry(btn.dataset.edit,btn.dataset.id); const link=e.target.closest('[data-view-link]'); if(link) navigate(link.dataset.viewLink);});
-  $('#entryForm').addEventListener('submit',e=>{
-    e.preventDefault(); const type=$('#entryType').value,id=$('#entryId').value; const fd=Object.fromEntries(new FormData(e.currentTarget));
-    if(type==='holiday'&&fd.end<fd.start) return toast('La data finale deve essere successiva a quella iniziale.');
-    const list=type==='revenue'?state.revenues:type==='expense'?state.expenses:state.holidays;
-    const obj={id:id||uuid(),...fd}; if(fd.amount)obj.amount=Number(fd.amount);
-    const index=list.findIndex(x=>x.id===id); if(index>=0)list[index]=obj; else list.push(obj);
-    if(type==='revenue')$('#revenueDayFilter').value=fd.date;
-    if(type==='expense')$('#expenseDayFilter').value=fd.date;
-    save(); populateReportYears(); renderAll(); checkExpenseReminders({announce:false}); $('#entryDialog').close(); toast(id?'Modifica salvata.':'Elemento aggiunto.');
-  });
-  $('#deleteEntry').addEventListener('click',()=>{
-    const type=$('#entryType').value,id=$('#entryId').value; if(!confirm('Eliminare definitivamente questo elemento?'))return;
-    const key=type==='revenue'?'revenues':type==='expense'?'expenses':'holidays'; state[key]=state[key].filter(x=>x.id!==id); save(); renderAll(); $('#entryDialog').close(); toast('Elemento eliminato.');
-  });
-
-  function renderAll() { setupDashboardPicker(); renderDashboard(); renderRevenues(); renderExpenses(); renderHolidays(); renderShifts(); renderReport(); settingsToForm(); }
-
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state)checkExpenseReminders({announce:false});});
-  setInterval(()=>{if(state)checkExpenseReminders({announce:false});},60*60*1000);
-  if (userEmail && store.accounts[userEmail]) enterApp(); else showAuth();
+(()=>{'use strict';
+const KEY='taxiLedgerV30';
+const colorMap={Carta:'#3478f6',Contanti:'#11b981',Uber:'#8b5cf6',FreeNow:'#ef6c8f',ITTaxi:'#f4a62a',Carburante:'#f4a62a',Manutenzione:'#f05252','Canone 3570':'#8b5cf6',Gomme:'#293b5a',Assicurazione:'#3478f6',Lavaggio:'#3bbfd9',Pedaggi:'#d27b39',Commercialista:'#6d7990',Altro:'#9aa5b4'};
+const months=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+const weekdays=['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const pad=n=>String(n).padStart(2,'0');
+const isoDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const today=()=>isoDate(new Date());
+const parseDate=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const money=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(Number(n)||0);
+const niceDate=s=>new Intl.DateTimeFormat('it-IT',{day:'2-digit',month:'short',year:'numeric'}).format(parseDate(s));
+const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const sum=a=>a.reduce((t,n)=>t+Number(n||0),0);
+const pct=(a,b)=>b?Math.round(a/b*100):0;
+const isFuture=s=>s>today();
+const defaultExpenseStatus=s=>isFuture(s)?'planned':'paid';
+function baseDB(){return{users:[],session:null}};
+function normalizeUser(u){if(!u||!u.data)return u;const d=u.data;d.income=d.income||d.incomes||d.revenues||[];d.expenses=d.expenses||d.costs||[];d.holidays=d.holidays||d.vacations||[];d.settings={...freshData().settings,...(d.settings||{})};return u}
+function loadDB(){
+  try{const current=JSON.parse(localStorage.getItem(KEY));if(current?.users){current.users=current.users.map(normalizeUser);return current}}catch{}
+  /* Migrazione prudente: riconosce i profili locali delle versioni precedenti senza cancellarli. */
+  try{for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key===KEY)continue;let old;try{old=JSON.parse(localStorage.getItem(key))}catch{continue}const users=old?.users||old?.profiles;if(Array.isArray(users)&&users.some(u=>u?.data&&(Array.isArray(u.data.income)||Array.isArray(u.data.incomes)||Array.isArray(u.data.expenses))))return{users:users.map(normalizeUser),session:old.session||old.currentUserId||users[0]?.id||null}}}catch{}
+  return baseDB()
+}
+let db=loadDB();
+let state={page:'dashboard',dashboardPeriod:'day',incomePeriod:'day',expensePeriod:'day',dashDate:today(),incomeDate:today(),expenseDate:today(),holidayMonth:today().slice(0,7),shiftMonth:today().slice(0,7),movementFilter:'all'};
+let statusTouched=false;
+function saveDB(){localStorage.setItem(KEY,JSON.stringify(db))}
+function currentUser(){return db.users.find(u=>u.id===db.session)}
+function freshData(){return{income:[],expenses:[],holidays:[],settings:{taxRate:5,inpsRate:26.07,license:'',fixedShift:'Mattina',bypassShifts:true,secondDriver:false,secondDriverTaxable:0,secondDriverCash:0,secondDriverMonths:{}}}}
+function register(name,email,password){const user={id:uid(),name,email:email.toLowerCase(),password,data:freshData()};db.users.push(user);db.session=user.id;saveDB();return user}
+function seedDemo(){let user=db.users.find(u=>u.email==='demo@taxiledger.it');if(!user){user=register('Profilo Demo','demo@taxiledger.it','demo');const d=user.data;const start=new Date(2026,9,1),end=new Date(2026,10,27);let i=0;for(let x=new Date(start);x<=end;x.setDate(x.getDate()+1)){if(x.getDay()===0||x.getDay()===6)continue;const ds=isoDate(x);d.income.push({id:uid(),date:ds,amount:75+(i%5)*8,type:i%3===0?'Contanti':'Carta',shift:'Mattina',notes:i%7===0?'Corsa aeroporto':''});d.income.push({id:uid(),date:ds,amount:55+(i%4)*6,type:i%8===0?'Uber':'Carta',shift:'Mattina',notes:''});d.expenses.push({id:uid(),date:ds,amount:22+(i%7),category:'Carburante',status:'paid',notes:''});i++}d.expenses.push({id:uid(),date:'2026-12-10',amount:400,category:'Gomme',status:'planned',notes:'Sostituzione invernali'});d.expenses.push({id:uid(),date:'2027-02-15',amount:350,category:'Manutenzione',status:'planned',notes:'Tagliando programmato'});d.holidays.push({id:uid(),start:'2026-08-10',end:'2026-08-23',label:'Ferie estive',kind:'personal'});saveDB()}else{db.session=user.id;saveDB()}return user}
+function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2200)}
+function showApp(){const u=currentUser();if(!u){$('#authView').classList.remove('hidden');$('#appView').classList.add('hidden');return}$('#authView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#sidebarUser').textContent=u.name;render()}
+function authTab(tab){$$('[data-auth-tab]').forEach(b=>b.classList.toggle('active',b.dataset.authTab===tab));$('#loginForm').classList.toggle('hidden',tab!=='login');$('#registerForm').classList.toggle('hidden',tab!=='register');$('#authMessage').textContent=''}
+$$('[data-auth-tab]').forEach(b=>b.addEventListener('click',()=>authTab(b.dataset.authTab)));
+$('#loginForm').addEventListener('submit',e=>{e.preventDefault();const email=$('#loginEmail').value.toLowerCase(),pass=$('#loginPassword').value;const u=db.users.find(x=>x.email===email&&x.password===pass);if(!u){$('#authMessage').textContent='Email o password non corretti.';return}db.session=u.id;saveDB();showApp()});
+$('#registerForm').addEventListener('submit',e=>{e.preventDefault();const email=$('#registerEmail').value.toLowerCase();if(db.users.some(u=>u.email===email)){ $('#authMessage').textContent='Esiste già un profilo con questa email.';return}register($('#registerName').value.trim(),email,$('#registerPassword').value);showApp()});
+$('#demoLogin').addEventListener('click',()=>{seedDemo();showApp()});
+$('#logoutBtn').addEventListener('click',()=>{db.session=null;saveDB();showApp()});
+$('#menuBtn').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
+$('#mainNav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(!b)return;navigate(b.dataset.page)});
+function navigate(page){state.page=page;$('#sidebar').classList.remove('open');render()}
+function titles(){return{dashboard:['Cruscotto','Una vista chiara della tua attività'],income:['Incassi','Consulta e gestisci i ricavi'],expenses:['Spese','Pagate, pianificate e future'],shifts:['Turni','Pianificazione mensile dei turni'],holidays:['Ferie','Periodi personali e riposi imposti'],closing:['Consuntivo','Margine e accantonamenti'],settings:['Impostazioni','Profilo, fiscalità e dati']}}
+function render(){const t=titles()[state.page];$('#pageTitle').textContent=t[0];$('#pageSubtitle').textContent=t[1];$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===state.page));const f={dashboard:renderDashboard,income:()=>renderLedger('income'),expenses:()=>renderLedger('expenses'),shifts:renderShifts,holidays:renderHolidays,closing:renderClosing,settings:renderSettings}[state.page];$('#content').innerHTML=f();bindContent()}
+function periodBounds(period,date){const d=parseDate(date);if(period==='day')return[date,date];if(period==='month')return[`${d.getFullYear()}-${pad(d.getMonth()+1)}-01`,isoDate(new Date(d.getFullYear(),d.getMonth()+1,0))];return[`${d.getFullYear()}-01-01`,`${d.getFullYear()}-12-31`]}
+function selected(items,period,date){const [a,b]=periodBounds(period,date);return items.filter(x=>x.date>=a&&x.date<=b)}
+function secondDriverFor(period,date){const u=currentUser(),s=u.data.settings;if(!s.secondDriver)return 0;const [a,b]=periodBounds(period,date);let total=0;for(let y=+a.slice(0,4);y<=+b.slice(0,4);y++)for(let m=1;m<=12;m++){const k=`${y}-${pad(m)}`;if(k<a.slice(0,7)||k>b.slice(0,7))continue;if(s.secondDriverMonths[k])total+=Number(s.secondDriverTaxable||0)+Number(s.secondDriverCash||0)}return total}
+function periodLabel(period,date){const d=parseDate(date);return period==='day'?niceDate(date):period==='month'?`${months[d.getMonth()]} ${d.getFullYear()}`:`Anno ${d.getFullYear()}`}
+function periodTools(scope,period,date){return`<div class="page-tools"><div class="period-tabs" data-period-scope="${scope}">${[['day','Giorno'],['month','Mese'],['year','Anno']].map(([k,l])=>`<button data-period="${k}" class="${period===k?'active':''}">${l}</button>`).join('')}</div><div class="date-controls">${period==='day'?`<input type="date" data-date-scope="${scope}" value="${date}">`:period==='month'?`<input type="month" data-date-scope="${scope}" value="${date.slice(0,7)}">`:`<button class="icon-btn" data-year-step="-1" data-year-scope="${scope}">‹</button><select data-year-select="${scope}">${yearOptions(+date.slice(0,4))}</select><button class="icon-btn" data-year-step="1" data-year-scope="${scope}">›</button>`}</div></div>`}
+function yearOptions(selectedYear){let out='';for(let y=2024;y<=2035;y++)out+=`<option ${y===selectedYear?'selected':''}>${y}</option>`;return out}
+function renderDashboard(){const u=currentUser(),p=state.dashboardPeriod,date=state.dashDate,inc=selected(u.data.income,p,date),exp=selected(u.data.expenses,p,date),paid=exp.filter(x=>x.status==='paid'),planned=exp.filter(x=>x.status==='planned'),gross=sum(inc.map(x=>x.amount)),fees=sum(inc.map(x=>platformFee(x))),net=gross-fees,expenses=sum(paid.map(x=>x.amount)),driver=secondDriverFor(p,date),margin=net+driver-expenses,totalTypes=groupSum(inc,'type'),expenseTypes=groupSum(paid,'category');return`${periodTools('dashboard',p,date)}
+<div class="metrics"><div class="card metric green"><div class="label">Incassi taxi</div><div class="value">${money(gross)}</div><div class="detail">${inc.length} movimenti · netto fee ${money(net)}</div></div><div class="card metric blue"><div class="label">Introito seconda guida</div><div class="value">${money(driver)}</div><div class="detail">Mesi effettivamente assegnati</div></div><div class="card metric red"><div class="label">Spese pagate</div><div class="value">${money(expenses)}</div><div class="detail">${paid.length} movimenti · ${planned.length} pianificati</div></div><div class="card metric ${margin>=0?'amber':'red'}"><div class="label">Margine</div><div class="value">${money(margin)}</div><div class="detail">${pct(margin,net+driver)}% degli introiti netti</div></div></div>
+<div class="grid-2"><section class="card section-card"><div class="section-head"><div><h2>Composizione incassi</h2><p>${periodLabel(p,date)}</p></div></div>${composition(totalTypes,gross)}</section><section class="card section-card"><div class="section-head"><div><h2>Composizione spese pagate</h2><p>Le pianificate sono escluse dal margine</p></div></div>${composition(expenseTypes,expenses)}</section></div>
+<section class="card section-card"><div class="section-head"><div><h2>Ultimi movimenti</h2><p>Filtrati sul periodo selezionato</p></div><div class="filter-tabs" data-movement-filter>${[['all','Tutti'],['income','Incassi'],['expenses','Spese']].map(([k,l])=>`<button data-filter="${k}" class="${state.movementFilter===k?'active':''}">${l}</button>`).join('')}</div></div>${movementTable(inc,exp,state.movementFilter,8)}<div class="dashboard-actions" style="margin-top:16px"><button class="btn income" data-go-ledger="income" data-go-period="${p}">Vedi tutti gli incassi</button><button class="btn expense" data-go-ledger="expenses" data-go-period="${p}">Vedi tutte le spese</button></div></section>`}
+function platformFee(x){return Number(x.amount||0)*(x.type==='Uber'?.07:x.type==='FreeNow'?.10:0)}
+function groupSum(items,key){return items.reduce((o,x)=>(o[x[key]]=(o[x[key]]||0)+Number(x.amount),o),{})}
+function composition(obj,total){const rows=Object.entries(obj).sort((a,b)=>b[1]-a[1]);if(!rows.length)return'<div class="empty">Nessun dato nel periodo selezionato.</div>';return rows.map(([n,v])=>`<div class="composition-row"><span class="name">${esc(n)}</span><div class="bar"><i style="width:${pct(v,total)}%;background:${colorMap[n]||'#8794a7'}"></i></div><span class="amount">${money(v)} · ${pct(v,total)}%</span></div>`).join('')}
+function movementRows(inc,exp){return[...inc.map(x=>({...x,kind:'income'})),...exp.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id))}
+function movementTable(inc,exp,filter='all',limit=0){let rows=movementRows(inc,exp);if(filter!=='all')rows=rows.filter(x=>x.kind===(filter==='income'?'income':'expense'));if(limit)rows=rows.slice(0,limit);if(!rows.length)return'<div class="empty">Nessun movimento nel periodo selezionato.</div>';return`<div class="table-wrap"><table class="data-table"><thead><tr><th></th><th>Data</th><th>Voce</th><th>Turno / stato</th><th>Note</th><th>Importo</th></tr></thead><tbody>${rows.map(x=>`<tr><td><button class="edit-btn" data-edit-kind="${x.kind}" data-edit-id="${x.id}">✎</button></td><td>${niceDate(x.date)}</td><td>${badgeType(x.kind==='income'?x.type:x.category)}</td><td>${x.kind==='income'?esc(x.shift||'—'):statusBadge(x.status)}</td><td>${esc(x.notes||'—')}</td><td class="${x.kind==='income'?'amount-income':'amount-expense'}">${x.kind==='income'?'+':'−'} ${money(x.amount)}</td></tr>`).join('')}</tbody></table></div>`}
+function badgeType(t){const cls=['Carta'].includes(t)?'card':['Contanti'].includes(t)?'cash':['Uber','FreeNow','ITTaxi'].includes(t)?'platform':'';return`<span class="badge ${cls}" style="color:${colorMap[t]||'#59677b'}">${esc(t)}</span>`}
+function statusBadge(s){return`<span class="badge ${s==='planned'?'planned':'paid'}">${s==='planned'?'Pianificata':'Pagata'}</span>`}
+function ledgerState(kind){return kind==='income'?{period:state.incomePeriod,date:state.incomeDate}:{period:state.expensePeriod,date:state.expenseDate}}
+function renderLedger(kind){const u=currentUser(),st=ledgerState(kind),items=kind==='income'?u.data.income:u.data.expenses,rows=selected(items,st.period,st.date),label=kind==='income'?'Incassi':'Spese',total=sum(rows.map(x=>x.amount)),paid=kind==='expenses'?sum(rows.filter(x=>x.status==='paid').map(x=>x.amount)):total,planned=kind==='expenses'?sum(rows.filter(x=>x.status==='planned').map(x=>x.amount)):0;let body='';if(st.period==='day')body=`<section class="card section-card"><div class="section-head"><div><h2>${label} del giorno</h2><p>${periodLabel(st.period,st.date)}</p></div><strong>${money(total)}</strong></div>${kind==='income'?movementTable(rows,[],'all'):movementTable([],rows,'all')}</section>`;if(st.period==='month')body=monthlyLedger(kind,rows,st.date);if(st.period==='year')body=annualLedger(kind,rows,st.date);return`${periodTools(kind,st.period,st.date)}<div class="metrics"><div class="card metric ${kind==='income'?'green':'red'}"><div class="label">Totale ${label.toLowerCase()}</div><div class="value">${money(total)}</div><div class="detail">${rows.length} movimenti</div></div>${kind==='expenses'?`<div class="card metric green"><div class="label">Già pagate</div><div class="value">${money(paid)}</div><div class="detail">Impatto sul margine</div></div><div class="card metric amber projected"><div class="label">Pianificate</div><div class="value">${money(planned)}</div><div class="detail">Visibili anche nel futuro</div></div>`:`<div class="card metric blue"><div class="label">Carta e piattaforme</div><div class="value">${money(sum(rows.filter(x=>x.type!=='Contanti').map(x=>x.amount)))}</div><div class="detail">${pct(sum(rows.filter(x=>x.type!=='Contanti').map(x=>x.amount)),total)}% del totale</div></div><div class="card metric amber"><div class="label">Contanti</div><div class="value">${money(sum(rows.filter(x=>x.type==='Contanti').map(x=>x.amount)))}</div><div class="detail">${pct(sum(rows.filter(x=>x.type==='Contanti').map(x=>x.amount)),total)}% del totale</div></div>`}<div class="card metric blue"><div class="label">Periodo</div><div class="value" style="font-size:17px">${periodLabel(st.period,st.date)}</div><div class="detail">Giorno · mese · anno</div></div></div>${body}`}
+function monthlyLedger(kind,rows,date){return`<div class="grid-2"><section class="card calendar-card"><div class="section-head"><div><h2>Calendario ${kind==='income'?'incassi':'spese'}</h2><p>Colori diversi per tipologia${kind==='expenses'?' e stato':''}</p></div></div>${renderCalendar(rows,date,kind)}</section><section class="card section-card"><div class="section-head"><div><h2>Dettaglio mensile</h2><p>Tutti i movimenti del mese</p></div></div>${kind==='income'?movementTable(rows,[],'all'):movementTable([],rows,'all')}</section></div>`}
+function renderCalendar(rows,date,kind){const d=parseDate(date),y=d.getFullYear(),m=d.getMonth(),first=new Date(y,m,1),offset=(first.getDay()+6)%7,start=new Date(y,m,1-offset),todayStr=today();let cells='';for(let i=0;i<42;i++){const x=new Date(start);x.setDate(start.getDate()+i);const ds=isoDate(x),dayRows=rows.filter(r=>r.date===ds),total=sum(dayRows.map(r=>r.amount)),outside=x.getMonth()!==m;cells+=`<div class="cal-day ${outside?'outside':''} ${ds===todayStr?'today':''}"><span class="day-num">${x.getDate()}</span>${dayRows.length?`<span class="day-total ${kind==='income'?'amount-income':'amount-expense'}">${money(total)}</span><div class="day-sub">${dayRows.length} mov.</div><div class="dots">${[...new Set(dayRows.map(r=>kind==='income'?r.type:r.category))].map(n=>`<i class="dot" title="${esc(n)}" style="background:${colorMap[n]||'#8794a7'}"></i>`).join('')}${kind==='expenses'&&dayRows.some(r=>r.status==='planned')?'<i class="dot" title="Pianificata" style="background:#f4a62a;box-shadow:0 0 0 2px #fff,0 0 0 3px #f4a62a"></i>':''}</div>`:''}</div>`}const types=[...new Set(rows.map(r=>kind==='income'?r.type:r.category))];return`<div class="calendar">${weekdays.map(w=>`<div class="weekday">${w}</div>`).join('')}${cells}</div><div class="calendar-legend">${types.map(n=>`<span><i style="background:${colorMap[n]||'#8794a7'}"></i>${esc(n)}</span>`).join('')}${kind==='expenses'?'<span><i style="background:#f4a62a"></i>Pianificata</span>':''}</div>`}
+function annualLedger(kind,rows,date){const y=+date.slice(0,4),byMonth=Array.from({length:12},(_,m)=>rows.filter(x=>+x.date.slice(5,7)===m+1)),max=Math.max(1,...byMonth.map(x=>sum(x.map(r=>r.amount))));return`<section class="card section-card"><div class="section-head"><div><h2>Panoramica annuale</h2><p>Include i movimenti futuri e le spese pianificate</p></div></div><div class="annual-grid">${byMonth.map((r,m)=>{const total=sum(r.map(x=>x.amount)),planned=kind==='expenses'?sum(r.filter(x=>x.status==='planned').map(x=>x.amount)):0;return`<div class="month-card"><h3>${months[m]}</h3><div class="big">${money(total)}</div><div class="small">${r.length} movimenti${planned?` · ${money(planned)} pianificati`:''}</div><div class="mini-bar"><i style="width:${total/max*100}%;background:${kind==='income'?'var(--green)':'var(--red)'}"></i></div></div>`}).join('')}</div></section>`}
+function renderShifts(){const u=currentUser(),s=u.data.settings,date=`${state.shiftMonth}-01`,d=parseDate(date),rows=[];for(let day=1;day<=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();day++)rows.push({date:`${state.shiftMonth}-${pad(day)}`,amount:0,type:s.fixedShift||'Mattina'});return`<div class="page-tools"><div><span class="eyebrow">Licenza ${esc(s.license||'non impostata')}</span><h2 style="margin:5px 0">Calendario turni</h2></div><div class="date-controls"><input type="month" data-special-month="shift" value="${state.shiftMonth}"></div></div><div class="notice">Il turno proposto negli incassi usa l’impostazione fissa. Puoi sempre modificarlo dalla pick list del singolo incasso.</div><section class="card calendar-card">${renderShiftCalendar(state.shiftMonth,s.fixedShift||'Mattina',u.data.holidays)}</section>`}
+function renderShiftCalendar(month,shift,holidays){const d=parseDate(`${month}-01`),y=d.getFullYear(),m=d.getMonth(),offset=(new Date(y,m,1).getDay()+6)%7,start=new Date(y,m,1-offset);let cells='';for(let i=0;i<42;i++){const x=new Date(start);x.setDate(start.getDate()+i);const ds=isoDate(x),outside=x.getMonth()!==m,holiday=holidays.find(h=>ds>=h.start&&ds<=h.end),weekend=[0,6].includes(x.getDay());cells+=`<div class="cal-day ${outside?'outside':''} ${ds===today()?'today':''}"><span class="day-num">${x.getDate()}</span>${!outside?`<span class="day-total" style="color:${holiday?'#b9780d':weekend?'#8b5cf6':'#256be0'}">${holiday?esc(holiday.kind==='forced'?'Riposo imposto':'Ferie'):weekend?'Riposo':esc(shift)}</span>`:''}</div>`}return`<div class="calendar">${weekdays.map(w=>`<div class="weekday">${w}</div>`).join('')}${cells}</div><div class="calendar-legend"><span><i style="background:#256be0"></i>${esc(shift)}</span><span><i style="background:#8b5cf6"></i>Weekend</span><span><i style="background:#f4a62a"></i>Ferie / riposo imposto</span></div>`}
+function renderHolidays(){const u=currentUser(),list=u.data.holidays,totalDays=sum(list.filter(h=>h.kind!=='forced').map(h=>dateDiff(h.start,h.end)+1));return`<div class="page-tools"><div><span class="eyebrow">${totalDays} giorni pianificati</span><h2 style="margin:5px 0">Calendario ferie</h2></div><div class="date-controls"><input type="month" data-special-month="holiday" value="${state.holidayMonth}"><button class="btn primary" data-add-holiday>＋ Periodo</button></div></div><div class="grid-2"><section class="card calendar-card">${renderShiftCalendar(state.holidayMonth,currentUser().data.settings.fixedShift||'Mattina',list)}</section><section class="card section-card"><div class="section-head"><div><h2>Periodi registrati</h2><p>Personali e imposti</p></div></div><div class="list">${list.length?list.sort((a,b)=>a.start.localeCompare(b.start)).map(h=>`<div class="list-item"><span class="badge ${h.kind==='forced'?'planned':'paid'}">${h.kind==='forced'?'Imposte':'Personali'}</span><div class="grow"><strong>${esc(h.label)}</strong><small>${niceDate(h.start)} — ${niceDate(h.end)} · ${dateDiff(h.start,h.end)+1} giorni</small></div><button class="delete" data-delete-holiday="${h.id}">Elimina</button></div>`).join(''):'<div class="empty">Nessun periodo registrato.</div>'}</div></section></div>`}
+function dateDiff(a,b){return Math.round((parseDate(b)-parseDate(a))/86400000)}
+function renderClosing(){const u=currentUser(),year=+state.dashDate.slice(0,4),inc=u.data.income.filter(x=>+x.date.slice(0,4)===year),paid=u.data.expenses.filter(x=>+x.date.slice(0,4)===year&&x.status==='paid'),s=u.data.settings,gross=sum(inc.map(x=>x.amount)),fees=sum(inc.map(platformFee)),expenses=sum(paid.map(x=>x.amount)),driver=secondDriverFor('year',`${year}-01-01`),tracked=sum(inc.filter(x=>x.type!=='Contanti').map(x=>x.amount))+driver,base=Math.max(0,tracked-fees-expenses),inps=base*Number(s.inpsRate||0)/100,tax=Math.max(0,base-inps)*Number(s.taxRate||0)/100,reserve=inps+tax,available=gross-fees+driver-expenses-reserve;return`<div class="page-tools"><div><span class="eyebrow">Simulazione fiscale</span><h2 style="margin:5px 0">Consuntivo ${year}</h2></div><div class="date-controls"><select data-year-select="dashboard">${yearOptions(year)}</select><button class="btn ghost" data-print>Esporta / stampa PDF</button></div></div><div class="metrics"><div class="card metric green"><div class="label">Ricavi complessivi</div><div class="value">${money(gross+driver)}</div><div class="detail">Taxi ${money(gross)} · guida ${money(driver)}</div></div><div class="card metric red"><div class="label">Costi e fee</div><div class="value">${money(expenses+fees)}</div><div class="detail">Spese pagate + piattaforme</div></div><div class="card metric amber"><div class="label">Accantonamento</div><div class="value">${money(reserve)}</div><div class="detail">INPS + imposta sostitutiva</div></div><div class="card metric blue"><div class="label">Disponibile stimato</div><div class="value">${money(available)}</div><div class="detail">Dopo costi e accantonamenti</div></div></div><div class="grid-2"><section class="card section-card"><div class="section-head"><h2>Calcolo</h2></div>${[['Ricavi tracciati e seconda guida',tracked],['Fee piattaforme',-fees],['Spese pagate',-expenses],['Base di simulazione',base],['INPS '+s.inpsRate+'%',-inps],['Imposta '+s.taxRate+'%',-tax]].map(([l,v])=>`<div class="stat-line"><span>${l}</span><strong>${money(v)}</strong></div>`).join('')}</section><section class="card section-card"><div class="section-head"><h2>Nota importante</h2></div><div class="notice">Il calcolo è una simulazione gestionale personalizzabile, non una dichiarazione fiscale. Anche i ricavi in contanti devono normalmente essere considerati ai fini fiscali: verifica aliquote e imponibile con il commercialista.</div></section></div>`}
+function renderSettings(){const u=currentUser(),s=u.data.settings,selectedYear=+state.dashDate.slice(0,4);return`<div class="settings-grid"><section class="card settings-card"><h2>Profilo e turni</h2><div class="form-grid"><label>Nome<input data-setting="profileName" value="${esc(u.name)}"></label><label>Numero licenza<input data-setting="license" value="${esc(s.license||'')}"></label><label>Turno fisso<select data-setting="fixedShift">${['Mattina','Pomeriggio','Sera','Notte','Intero'].map(v=>`<option ${s.fixedShift===v?'selected':''}>${v}</option>`).join('')}</select></label><label>Bypass turnazione<select data-setting="bypassShifts"><option value="true" ${s.bypassShifts?'selected':''}>Sì, uso il turno fisso</option><option value="false" ${!s.bypassShifts?'selected':''}>No</option></select></label></div></section><section class="card settings-card"><h2>Fiscalità</h2><div class="form-grid"><label>Imposta sostitutiva %<input type="number" step=".01" data-setting="taxRate" value="${s.taxRate}"></label><label>INPS %<input type="number" step=".01" data-setting="inpsRate" value="${s.inpsRate}"></label></div></section><section class="card settings-card"><h2>Seconda guida</h2><div class="switch-row"><span>Seconda guida attiva</span><label class="switch"><input type="checkbox" data-setting="secondDriver" ${s.secondDriver?'checked':''}><i></i></label></div><div class="form-grid"><label>Compenso mensile imponibile<input type="number" data-setting="secondDriverTaxable" value="${s.secondDriverTaxable||0}"></label><label>Parte mensile contanti<input type="number" data-setting="secondDriverCash" value="${s.secondDriverCash||0}"></label><label>Anno<select data-second-year>${yearOptions(selectedYear)}</select></label></div><div class="annual-grid" style="margin-top:14px">${months.map((m,i)=>{const k=`${selectedYear}-${pad(i+1)}`;return`<label class="month-card" style="padding:10px"><span style="font-size:11px;text-transform:capitalize">${m}</span><input style="float:right" type="checkbox" data-driver-month="${k}" ${s.secondDriverMonths[k]?'checked':''}></label>`}).join('')}</div></section><section class="card settings-card"><h2>Dati</h2><p style="font-size:12px;color:var(--muted)">Crea un backup JSON o importa un archivio Taxi Ledger.</p><div class="dashboard-actions"><button class="btn primary" data-export>Esporta backup</button><label class="btn ghost" style="text-align:center">Importa backup<input type="file" accept="application/json" data-import hidden></label><button class="btn danger ghost" data-reset>Azzera dati</button></div></section></div>`}
+function bindContent(){const root=$('#content');root.querySelectorAll('[data-period-scope]').forEach(g=>g.addEventListener('click',e=>{const b=e.target.closest('[data-period]');if(!b)return;setPeriod(g.dataset.periodScope,b.dataset.period)}));root.querySelectorAll('[data-date-scope]').forEach(i=>i.addEventListener('change',()=>setDate(i.dataset.dateScope,i.value)));root.querySelectorAll('[data-year-select]').forEach(s=>s.addEventListener('change',()=>setYear(s.dataset.yearSelect,+s.value)));root.querySelectorAll('[data-year-step]').forEach(b=>b.addEventListener('click',()=>stepYear(b.dataset.yearScope,+b.dataset.yearStep)));root.querySelectorAll('[data-edit-id]').forEach(b=>b.addEventListener('click',()=>openEntry(b.dataset.editKind,b.dataset.editId)));root.querySelectorAll('[data-go-ledger]').forEach(b=>b.addEventListener('click',()=>goLedger(b.dataset.goLedger,b.dataset.goPeriod)));root.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{state.movementFilter=b.dataset.filter;render()}));root.querySelectorAll('[data-special-month]').forEach(i=>i.addEventListener('change',()=>{state[i.dataset.specialMonth+'Month']=i.value;render()}));const ah=root.querySelector('[data-add-holiday]');if(ah)ah.onclick=openHoliday;root.querySelectorAll('[data-delete-holiday]').forEach(b=>b.onclick=()=>{const u=currentUser();u.data.holidays=u.data.holidays.filter(x=>x.id!==b.dataset.deleteHoliday);saveDB();render();toast('Periodo eliminato')});root.querySelectorAll('[data-setting]').forEach(i=>i.addEventListener('change',()=>updateSetting(i)));root.querySelectorAll('[data-driver-month]').forEach(i=>i.addEventListener('change',()=>{currentUser().data.settings.secondDriverMonths[i.dataset.driverMonth]=i.checked;saveDB();render()}));const sy=root.querySelector('[data-second-year]');if(sy)sy.onchange=()=>{state.dashDate=`${sy.value}-${state.dashDate.slice(5)}`;render()};const ex=root.querySelector('[data-export]');if(ex)ex.onclick=exportBackup;const im=root.querySelector('[data-import]');if(im)im.onchange=importBackup;const rs=root.querySelector('[data-reset]');if(rs)rs.onclick=resetData;const pr=root.querySelector('[data-print]');if(pr)pr.onclick=()=>window.print()}
+function setPeriod(scope,p){if(scope==='dashboard')state.dashboardPeriod=p;else if(scope==='income')state.incomePeriod=p;else state.expensePeriod=p;render()}
+function setDate(scope,v){const date=v.length===7?`${v}-01`:v;if(scope==='dashboard')state.dashDate=date;else if(scope==='income')state.incomeDate=date;else state.expenseDate=date;render()}
+function setYear(scope,y){if(scope==='dashboard')state.dashDate=`${y}-${state.dashDate.slice(5)}`;else if(scope==='income')state.incomeDate=`${y}-${state.incomeDate.slice(5)}`;else state.expenseDate=`${y}-${state.expenseDate.slice(5)}`;render()}
+function stepYear(scope,delta){const date=scope==='dashboard'?state.dashDate:scope==='income'?state.incomeDate:state.expenseDate;setYear(scope,+date.slice(0,4)+delta)}
+function goLedger(kind,period){const source=state.dashDate;if(kind==='income'){state.incomePeriod=period;state.incomeDate=source;state.page='income'}else{state.expensePeriod=period;state.expenseDate=source;state.page='expenses'}render()}
+$$('[data-open]').forEach(b=>b.addEventListener('click',()=>openEntry(b.dataset.open==='income'?'income':'expense')));
+function openEntry(kind,id){const u=currentUser();if(!u)return;const item=id?(kind==='income'?u.data.income:u.data.expenses).find(x=>x.id===id):null;statusTouched=false;$('#entryId').value=id||'';$('#entryKind').value=kind;$('#entryDate').value=item?.date||today();$('#entryAmount').value=item?.amount||'';$('#incomeType').value=item?.type||'Carta';$('#expenseCategory').value=item?.category||'Carburante';$('#entryShift').value=item?.shift||u.data.settings.fixedShift||'Mattina';$('#entryNotes').value=item?.notes||'';$('#entryTitle').textContent=`${item?'Modifica':'Nuovo'} ${kind==='income'?'incasso':'spesa'}`;$('#entryEyebrow').textContent=kind==='income'?'Ricavo':'Costo';$('#incomeTypeField').classList.toggle('hidden',kind!=='income');$('#shiftField').classList.toggle('hidden',kind!=='income');$('#expenseCategoryField').classList.toggle('hidden',kind!=='expense');$('#expenseStatusField').classList.toggle('hidden',kind!=='expense');$('#deleteEntry').classList.toggle('hidden',!item);if(kind==='expense'){$('#expenseStatus').value=item?.status||defaultExpenseStatus($('#entryDate').value);$('#statusHint').textContent=statusText($('#entryDate').value)}$('#entryDialog').showModal()}
+function statusText(date){return isFuture(date)?'Data futura: proposta Pianificata':'Data odierna/passata: proposta Pagata'}
+$('#entryDate').addEventListener('change',()=>{if($('#entryKind').value==='expense'&&!statusTouched){$('#expenseStatus').value=defaultExpenseStatus($('#entryDate').value);$('#statusHint').textContent=statusText($('#entryDate').value)}});
+$('#expenseStatus').addEventListener('change',()=>{statusTouched=true;$('#statusHint').textContent='Stato modificato manualmente'});
+$('#entryForm').addEventListener('submit',e=>{e.preventDefault();const u=currentUser(),kind=$('#entryKind').value,id=$('#entryId').value,date=$('#entryDate').value,amount=Number($('#entryAmount').value);if(!date||amount<=0)return;const list=kind==='income'?u.data.income:u.data.expenses;const old=list.find(x=>x.id===id);const record=kind==='income'?{id:id||uid(),date,amount,type:$('#incomeType').value,shift:$('#entryShift').value,notes:$('#entryNotes').value.trim()}:{id:id||uid(),date,amount,category:$('#expenseCategory').value,status:statusTouched?$('#expenseStatus').value:(old?.status&&old.date===date?old.status:defaultExpenseStatus(date)),notes:$('#entryNotes').value.trim()};if(old)Object.assign(old,record);else list.push(record);saveDB();$('#entryDialog').close();if(kind==='income'){state.incomeDate=date}else state.expenseDate=date;render();toast(`${kind==='income'?'Incasso':'Spesa'} salvato`)});
+$('#closeDialog').onclick=$('#cancelEntry').onclick=()=>$('#entryDialog').close();
+$('#deleteEntry').onclick=()=>{if(!confirm('Eliminare questo movimento?'))return;const u=currentUser(),kind=$('#entryKind').value,id=$('#entryId').value;if(kind==='income')u.data.income=u.data.income.filter(x=>x.id!==id);else u.data.expenses=u.data.expenses.filter(x=>x.id!==id);saveDB();$('#entryDialog').close();render();toast('Movimento eliminato')};
+function openHoliday(){$('#holidayStart').value=today();$('#holidayEnd').value=today();$('#holidayDialog').showModal()}
+$('#closeHolidayDialog').onclick=$('#cancelHoliday').onclick=()=>$('#holidayDialog').close();
+$('#holidayForm').addEventListener('submit',e=>{e.preventDefault();const a=$('#holidayStart').value,b=$('#holidayEnd').value;if(b<a){toast('La data finale deve seguire quella iniziale');return}currentUser().data.holidays.push({id:uid(),start:a,end:b,label:$('#holidayLabel').value||'Ferie personali',kind:'personal'});saveDB();$('#holidayDialog').close();state.holidayMonth=a.slice(0,7);render();toast('Ferie aggiunte')});
+function updateSetting(i){const u=currentUser(),key=i.dataset.setting;if(key==='profileName'){u.name=i.value.trim()||u.name;$('#sidebarUser').textContent=u.name}else if(key==='bypassShifts')u.data.settings[key]=i.value==='true';else if(i.type==='checkbox')u.data.settings[key]=i.checked;else if(i.type==='number')u.data.settings[key]=Number(i.value);else u.data.settings[key]=i.value;saveDB();render();toast('Impostazione salvata')}
+function exportBackup(){const payload={app:'Taxi Ledger',version:3,exportedAt:new Date().toISOString(),profile:currentUser()};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`TaxiLedger-backup-${today()}.json`;a.click();URL.revokeObjectURL(a.href);toast('Backup esportato')}
+function importBackup(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const payload=JSON.parse(r.result),raw=payload.profile?.data||payload.data||payload;const incoming={...raw,income:raw.income||raw.incomes||raw.revenues,expenses:raw.expenses||raw.costs,holidays:raw.holidays||raw.vacations||[]};if(!Array.isArray(incoming.income)||!Array.isArray(incoming.expenses))throw Error();if(!confirm('L’importazione sostituirà i dati del profilo corrente. Continuare?'))return;currentUser().data={...freshData(),...incoming,settings:{...freshData().settings,...(incoming.settings||{})}};saveDB();render();toast('Backup importato')}catch{toast('File di backup non valido')}};r.readAsText(file)}
+function resetData(){if(!confirm('Azzera tutti i movimenti, ferie e impostazioni del profilo?'))return;currentUser().data=freshData();saveDB();render();toast('Dati azzerati')}
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+showApp();
 })();
