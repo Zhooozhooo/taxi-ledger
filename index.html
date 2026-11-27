@@ -101,7 +101,15 @@
         <section id="view-revenues" class="view">
           <div class="section-actions"><div><h2>Incassi</h2><p class="muted">Storico completo di carta e contanti. Usa “＋ Incasso” nell'header per aggiungere un movimento.</p></div></div>
           <div class="period-tabs ledger-period-tabs" data-ledger-kind="revenues"><button class="ledger-period-tab active" data-ledger-period="day">Giorno</button><button class="ledger-period-tab" data-ledger-period="month">Mese</button><button class="ledger-period-tab" data-ledger-period="year">Anno</button></div>
-          <div class="period-controls card compact ledger-period-controls"><label id="revenuePickerLabel">Data<input id="revenuePeriodPicker" type="date"></label><div id="revenuePeriodNote" class="projection-note"></div></div>
+          <div class="period-controls card compact ledger-period-controls">
+            <div class="ledger-filter-bar" aria-label="Periodo e filtri incassi">
+              <label id="revenuePickerLabel">Data<input id="revenuePeriodPicker" type="date"></label>
+              <label>Turno<select id="revenueShiftFilter" aria-label="Filtra incassi per turno"></select></label>
+              <label>Note<select id="revenueNoteFilter" aria-label="Filtra incassi per nota"></select></label>
+              <label>Metodo<select id="revenueMethodFilter" aria-label="Filtra incassi per metodo"></select></label>
+            </div>
+            <div id="revenuePeriodNote" class="projection-note"></div>
+          </div>
           <div id="revenueSummary" class="mini-kpis"></div>
           <article id="revenueCalendarCard" class="card ledger-calendar-card hidden"><div class="card-heading"><div><p class="eyebrow">CALENDARIO INCASSI</p><h3 id="revenueCalendarTitle">Calendario mensile</h3></div></div><div class="ledger-calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="revenueCalendarGrid" class="ledger-calendar-grid"></div><div id="revenueCalendarLegend" class="ledger-calendar-legend"></div></article>
           <article id="revenueAnnualCard" class="card annual-ledger-card hidden"><div class="card-heading"><div><p class="eyebrow">PANORAMICA ANNUALE</p><h3 id="revenueAnnualTitle">Incassi per mese</h3></div></div><div id="revenueAnnualGrid" class="annual-ledger-grid"></div></article>
@@ -112,7 +120,15 @@
           <div class="section-actions"><div><h2>Spese</h2><p class="muted">Costi sostenuti e pianificati. Usa “− Spesa” nell'header per aggiungere un movimento.</p></div></div>
           <div id="expenseReminderBanner" class="reminder-banner hidden" role="status" aria-live="polite"></div>
           <div class="period-tabs ledger-period-tabs" data-ledger-kind="expenses"><button class="ledger-period-tab active" data-ledger-period="day">Giorno</button><button class="ledger-period-tab" data-ledger-period="month">Mese</button><button class="ledger-period-tab" data-ledger-period="year">Anno</button></div>
-          <div class="period-controls card compact ledger-period-controls"><label id="expensePickerLabel">Data<input id="expensePeriodPicker" type="date"></label><div id="expensePeriodNote" class="projection-note"></div></div>
+          <div class="period-controls card compact ledger-period-controls">
+            <div class="ledger-filter-bar" aria-label="Periodo e filtri spese">
+              <label id="expensePickerLabel">Data<input id="expensePeriodPicker" type="date"></label>
+              <label>Categoria<select id="expenseCategoryFilter" aria-label="Filtra spese per categoria"></select></label>
+              <label>Stato<select id="expenseStatusFilter" aria-label="Filtra spese per stato"></select></label>
+              <label>Metodo<select id="expenseMethodFilter" aria-label="Filtra spese per metodo"></select></label>
+            </div>
+            <div id="expensePeriodNote" class="projection-note"></div>
+          </div>
           <div id="expenseSummary" class="mini-kpis"></div>
           <article id="expenseCalendarCard" class="card ledger-calendar-card hidden"><div class="card-heading"><div><p class="eyebrow">CALENDARIO SPESE</p><h3 id="expenseCalendarTitle">Calendario mensile</h3></div></div><div class="ledger-calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="expenseCalendarGrid" class="ledger-calendar-grid"></div><div id="expenseCalendarLegend" class="ledger-calendar-legend"></div></article>
           <article id="expenseAnnualCard" class="card annual-ledger-card hidden"><div class="card-heading"><div><p class="eyebrow">PANORAMICA ANNUALE</p><h3 id="expenseAnnualTitle">Spese per mese</h3></div></div><div id="expenseAnnualGrid" class="annual-ledger-grid"></div></article>

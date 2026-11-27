@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '3.2.0';
+  const APP_VERSION = '3.2.2';
   const SHIFT_PDF_DB = 'taxiLedger.documents.v1';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
@@ -51,6 +51,10 @@
   const ledgerValues = {
     revenues:{day:today,month:currentMonth,year:currentYear},
     expenses:{day:today,month:currentMonth,year:currentYear}
+  };
+  const ledgerFilters = {
+    revenues:{shift:'',note:'',method:''},
+    expenses:{category:'',status:'',method:''}
   };
   let selectedSecondDriverYear = currentYear;
   let shiftCalendarMonth = currentMonth;
@@ -445,6 +449,35 @@
     const {period,value}=ledgerContext(kind), source=kind==='revenues'?state.revenues:state.expenses;
     return source.filter(x=>inPeriod(x.date,period,value));
   }
+  function fillLedgerFilter(id,items,allLabel,current) {
+    const select=$(`#${id}`), normalized=items.map(item=>typeof item==='string'?{value:item,label:item}:item), values=new Set(normalized.map(item=>item.value));
+    select.replaceChildren(new Option(allLabel,''),...normalized.map(item=>new Option(item.label,item.value)));
+    select.value=values.has(current)?current:'';
+    return select.value;
+  }
+  function populateLedgerFilters(kind) {
+    if(kind==='revenues') {
+      const usedShifts=[...new Set(state.revenues.map(r=>String(r.shift||'').trim()).filter(Boolean))];
+      const shifts=[...new Set([...revenueShiftOptions,...usedShifts])].map(value=>({value,label:value}));
+      if(state.revenues.some(r=>!String(r.shift||'').trim()))shifts.push({value:'__empty__',label:'Non indicato'});
+      const notes=[...new Set(state.revenues.map(r=>String(r.note||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it')).map(value=>({value,label:value}));
+      if(state.revenues.some(r=>!String(r.note||'').trim()))notes.push({value:'__empty__',label:'Senza note'});
+      ledgerFilters.revenues.shift=fillLedgerFilter('revenueShiftFilter',shifts,'Tutti i turni',ledgerFilters.revenues.shift);
+      ledgerFilters.revenues.note=fillLedgerFilter('revenueNoteFilter',notes,'Tutte le note',ledgerFilters.revenues.note);
+      ledgerFilters.revenues.method=fillLedgerFilter('revenueMethodFilter',Object.entries(revenueMethods).map(([value,meta])=>({value,label:meta.label})),'Tutti i metodi',ledgerFilters.revenues.method);
+      return;
+    }
+    const usedCategories=[...new Set(state.expenses.map(r=>String(r.category||'Altro').trim()).filter(Boolean))];
+    const categories=[...new Set([...expenseCategories,...usedCategories])].map(value=>({value,label:value}));
+    ledgerFilters.expenses.category=fillLedgerFilter('expenseCategoryFilter',categories,'Tutte le categorie',ledgerFilters.expenses.category);
+    ledgerFilters.expenses.status=fillLedgerFilter('expenseStatusFilter',Object.entries(expenseStatusMeta).map(([value,meta])=>({value,label:meta.label})),'Tutti gli stati',ledgerFilters.expenses.status);
+    ledgerFilters.expenses.method=fillLedgerFilter('expenseMethodFilter',[{value:'card',label:'Carta'},{value:'cash',label:'Contanti'}],'Tutti i metodi',ledgerFilters.expenses.method);
+  }
+  function applyLedgerFilters(kind,rows) {
+    const filters=ledgerFilters[kind];
+    if(kind==='revenues') return rows.filter(row=>(!filters.shift||(filters.shift==='__empty__'?!String(row.shift||'').trim():row.shift===filters.shift))&&(!filters.note||(filters.note==='__empty__'?!String(row.note||'').trim():String(row.note||'').trim()===filters.note))&&(!filters.method||row.method===filters.method));
+    return rows.filter(row=>(!filters.category||row.category===filters.category)&&(!filters.status||expenseStatus(row.status)===filters.status)&&(!filters.method||row.method===filters.method));
+  }
   function renderLedgerCalendar(kind,rows) {
     const {value,prefix}=ledgerContext(kind), [year,month]=value.split('-').map(Number), first=new Date(year,month-1,1,12), days=new Date(year,month,0,12).getDate(), offset=(first.getDay()+6)%7, cells=[];
     const labels=new Map();
@@ -469,8 +502,9 @@
   }
   function renderRevenues() {
     setupLedgerPicker('revenues');
+    populateLedgerFilters('revenues');
     const {period,value}=ledgerContext('revenues'), q=$('#revenueSearch').value.trim().toLowerCase();
-    const allRows=ledgerRows('revenues').sort((a,b)=>b.date.localeCompare(a.date)), rows=allRows.filter(r=>!q||`${r.shift} ${r.note} ${revenueMethod(r.method).label} ${r.amount}`.toLowerCase().includes(q));
+    const allRows=applyLedgerFilters('revenues',ledgerRows('revenues')).sort((a,b)=>b.date.localeCompare(a.date)), rows=allRows.filter(r=>!q||`${r.shift} ${r.note} ${revenueMethod(r.method).label} ${r.amount}`.toLowerCase().includes(q));
     const cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0), traced = rows.filter(r=>revenueMethod(r.method).cardLike).reduce((s,r)=>s+Number(r.amount),0);
     const fees=rows.reduce((s,r)=>s+Number(r.amount)*revenueMethod(r.method).fee/100,0);
     $('#revenueSummary').innerHTML = summaryCards(traced+cash,traced,cash).replace('Carta</span>','Tracciati</span>')+(fees?`<div class="mini-card fee-card"><span>Fee piattaforme</span><strong>− ${money(fees)}</strong><small>Uber 7% · FreeNow 10%</small></div>`:'');
@@ -481,8 +515,9 @@
   }
   function renderExpenses() {
     setupLedgerPicker('expenses');
+    populateLedgerFilters('expenses');
     const {period}=ledgerContext('expenses'), q=$('#expenseSearch').value.trim().toLowerCase();
-    const allRows=ledgerRows('expenses').sort((a,b)=>b.date.localeCompare(a.date)), rows=allRows.filter(r=>!q||`${r.note} ${r.category} ${r.amount}`.toLowerCase().includes(q));
+    const allRows=applyLedgerFilters('expenses',ledgerRows('expenses')).sort((a,b)=>b.date.localeCompare(a.date)), rows=allRows.filter(r=>!q||`${r.note} ${r.category} ${expenseStatusMeta[expenseStatus(r.status)].label} ${r.method==='card'?'Carta':'Contanti'} ${r.amount}`.toLowerCase().includes(q));
     const paidRows=rows.filter(r=>expenseStatus(r.status)==='paid'), plannedRows=rows.filter(r=>expenseStatus(r.status)==='planned'), cancelledRows=rows.filter(r=>expenseStatus(r.status)==='cancelled');
     const paid=paidRows.reduce((s,r)=>s+Number(r.amount),0), planned=plannedRows.reduce((s,r)=>s+Number(r.amount),0);
     const card = paidRows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = paidRows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
@@ -494,6 +529,7 @@
     renderExpenseReminders();
   }
   $('#revenueSearch').addEventListener('input',renderRevenues); $('#expenseSearch').addEventListener('input',renderExpenses);
+  [['revenues','shift','revenueShiftFilter'],['revenues','note','revenueNoteFilter'],['revenues','method','revenueMethodFilter'],['expenses','category','expenseCategoryFilter'],['expenses','status','expenseStatusFilter'],['expenses','method','expenseMethodFilter']].forEach(([kind,key,id])=>$('#'+id).addEventListener('change',e=>{ledgerFilters[kind][key]=e.target.value;kind==='revenues'?renderRevenues():renderExpenses();}));
   $$('[data-ledger-kind]').forEach(group=>group.addEventListener('click',e=>{const button=e.target.closest('[data-ledger-period]');if(!button)return;const kind=group.dataset.ledgerKind;ledgerPeriods[kind]=button.dataset.ledgerPeriod;setupLedgerPicker(kind);kind==='revenues'?renderRevenues():renderExpenses();}));
   [['revenues','revenuePeriodPicker'],['expenses','expensePeriodPicker']].forEach(([kind,id])=>$('#'+id).addEventListener('change',e=>{if(!e.target.value)return;ledgerValues[kind][ledgerPeriods[kind]]=e.target.value;kind==='revenues'?renderRevenues():renderExpenses();}));
   [['revenues','revenueCalendarGrid'],['expenses','expenseCalendarGrid']].forEach(([kind,id])=>$('#'+id).addEventListener('click',e=>{const cell=e.target.closest('[data-ledger-date]');if(!cell)return;ledgerValues[kind].day=cell.dataset.ledgerDate;ledgerPeriods[kind]='day';kind==='revenues'?renderRevenues():renderExpenses();}));
