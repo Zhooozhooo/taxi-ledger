@@ -89,3 +89,10 @@ main{background:linear-gradient(180deg,#f6f8fb 0,#f3f5f8 100%);min-height:calc(1
 .ledger-period-controls{display:grid;grid-template-columns:1fr;align-items:stretch}.ledger-filter-bar{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:.8rem;align-items:end}.ledger-filter-bar label{min-width:0}.ledger-period-controls .projection-note{max-width:none;padding-top:.1rem}.settings-grid{grid-template-columns:repeat(6,minmax(0,1fr));align-items:start}.settings-grid .settings-card{grid-column:span 2}.settings-grid .second-driver-card{grid-column:span 2}.settings-grid .data-settings-card,.settings-grid .reminder-settings-card{grid-column:span 3}
 @media(max-width:1050px){.ledger-filter-bar{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-grid .settings-card,.settings-grid .data-settings-card,.settings-grid .reminder-settings-card{grid-column:auto}.settings-grid .second-driver-card{grid-column:1/-1}}
 @media(max-width:760px){.ledger-filter-bar{grid-template-columns:1fr}.settings-grid{grid-template-columns:1fr}.settings-grid .settings-card,.settings-grid .second-driver-card,.settings-grid .data-settings-card,.settings-grid .reminder-settings-card{grid-column:1}}
+
+/* Versione 3.2.4 - ordine e colori dei riepiloghi del Cruscotto */
+#dashboardKpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.kpi-card.expense-kpi{background:#fff3f6;border-color:#f2ccd6}
+.kpi-card.expense-kpi .kpi-icon{background:#fde2e9;color:#b84b68}
+@media(max-width:1050px){#dashboardKpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){#dashboardKpis{grid-template-columns:1fr}}

@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '3.2.3';
+  const APP_VERSION = '3.2.4';
   const SHIFT_PDF_DB = 'taxiLedger.documents.v1';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
@@ -355,16 +355,16 @@
     const cardShare = d.revenueTotal ? d.cardLike/d.revenueTotal*100 : 0, cashShare = d.revenueTotal ? d.cash/d.revenueTotal*100 : 0;
     const marginShare = d.revenueTotal ? d.margin/d.revenueTotal*100 : 0;
     const overduePlanned = d.plannedExpenses.filter(x=>x.date<today).length;
-    let cards = kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
-    cards += kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
+    let cards = kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
+    cards += kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
     const feeTypeCount = Object.keys(d.feeByMethod).length;
-    cards += kpi('％','FEE PAGATE',money(d.platformFees),feeTypeCount?`${feeTypeCount} ${feeTypeCount===1?'tipologia':'tipologie'} con commissioni`:'Nessuna fee nel periodo','fee-card');
-    cards += kpi('↘','SPESE SOSTENUTE',money(d.expenseTotal),`${d.expenses.length} ${d.expenses.length===1?'spesa pagata':'spese pagate'}`);
-    cards += kpi('◷','SPESE PIANIFICATE',money(d.plannedTotal),d.plannedExpenses.length?`${d.plannedExpenses.length} ${d.plannedExpenses.length===1?'scadenza':'scadenze'}${overduePlanned?` · ${overduePlanned} scadute`:''}`:'Nessuna spesa pianificata');
-    cards += kpi('◇','MARGINE EFFETTIVO',money(d.margin),`${pct(marginShare)} · incassi netti − spese pagate`);
+    cards += kpi('％','FEE PAGATE',money(d.platformFees),feeTypeCount?`${feeTypeCount} ${feeTypeCount===1?'tipologia':'tipologie'} con commissioni`:'Nessuna fee nel periodo','expense-kpi');
+    cards += kpi('↘','SPESE SOSTENUTE',money(d.expenseTotal),`${d.expenses.length} ${d.expenses.length===1?'spesa pagata':'spese pagate'}`,'expense-kpi');
+    cards += kpi('◇','MARGINE EFFETTIVO',money(d.margin),`${pct(marginShare)} · incassi netti − spese pagate`,'accent');
+    cards += kpi('◷','SPESE PIANIFICATE',money(d.plannedTotal),d.plannedExpenses.length?`${d.plannedExpenses.length} ${d.plannedExpenses.length===1?'scadenza':'scadenze'}${overduePlanned?` · ${overduePlanned} scadute`:''}`:'Nessuna spesa pianificata','expense-kpi');
     if (dashPeriod!=='day') cards += kpi('♙','INTROITO SECONDA GUIDA',money(secondDriver.income),secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese':'mesi'} · imponibile ${money(secondDriver.taxableIncome)} · contanti ${money(secondDriver.cashIncome)}`:(state.settings.secondDriver?'Nessun mese assegnato':'Seconda guida non attiva'));
-    if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi');
+    if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi','accent');
     $('#dashboardKpis').innerHTML = cards;
     const proj = $('#projectionNote');
     if (!p) proj.innerHTML = '<strong>Vista giornaliera.</strong> Seleziona una data per consultare o correggere lo storico.';
@@ -645,7 +645,7 @@
     const netDays=[...plannedDays].filter(x=>{const d=parseDate(x).getDay(); return d!==0&&d!==6;}).length;
     const imposed=yearRows.filter(h=>h.locked).length;
     const next = rows.find(h=>h.end>=today);
-    $('#holidaySummary').innerHTML = `<div class="mini-card featured"><span>Totale giorni pianificati ${currentYear}</span><strong>${plannedDays.size}</strong><small>giorni unici, inclusi i riposi imposti</small></div><div class="mini-card"><span>Giorni feriali esclusi</span><strong>${netDays}</strong><small>non usati nelle proiezioni</small></div><div class="mini-card"><span>Riposi imposti</span><strong>${imposed}</strong><small>periodi da QG/2926/2025</small></div><div class="mini-card"><span>Prossimo periodo</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
+    $('#holidaySummary').innerHTML = `<div class="mini-card featured"><span>Giorni totali di assenza ${currentYear}</span><strong>${plannedDays.size}</strong><small>giorni unici, inclusi i riposi imposti</small></div><div class="mini-card"><span>Giorni lavorativi di assenza</span><strong>${netDays}</strong><small>non usati nelle proiezioni</small></div><div class="mini-card"><span>Periodi obbligatori</span><strong>${imposed}</strong><small>periodi da QG/2926/2025</small></div><div class="mini-card"><span>Prossimo riposo obbligatorio</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
     $('#holidayList').innerHTML = rows.map(h=>`<div class="holiday-item ${h.locked?'mandatory':''}"><span class="holiday-icon">${h.locked?'◆':'☀'}</span><div><h4>${esc(h.name)} ${h.locked?'<span class="mandatory-badge">Imposta</span>':''}</h4><p>${dateLabel(h.start)} → ${dateLabel(h.end)}${h.note?` · ${esc(h.note)}`:''}</p></div><span class="days-badge">${daysInclusive(h.start,h.end)} giorni</span>${h.locked?'<span class="lock-mark" title="Periodo automatico">🔒</span>':`<button class="edit-btn" data-edit="holiday" data-id="${h.id}" aria-label="Modifica ferie">✎</button>`}</div>`).join('');
     $('#holidayEmpty').classList.toggle('hidden', rows.length>0); $('#holidayEmpty').innerHTML='<strong>Nessun periodo di ferie</strong>Aggiungilo per rendere più accurate le proiezioni.';
   }

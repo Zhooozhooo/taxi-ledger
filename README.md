@@ -1,6 +1,13 @@
-# Taxi Ledger 3.2.3
+# Taxi Ledger 3.2.4
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
+
+## Aggiornamento 3.2.4
+
+- nel **Cruscotto**, i riquadri sono disposti su tre colonne nell'ordine richiesto;
+- **Fee pagate**, **Spese sostenute** e **Spese pianificate** hanno fondo rosa chiaro;
+- **Incassi**, **Margine effettivo** e **Proiezione totale incassi** condividono lo stile verde;
+- nel riepilogo **Ferie e Turni**, le quattro etichette sono state rese più chiare senza modificare i calcoli.
 
 ## Aggiornamento 3.2.3
 
