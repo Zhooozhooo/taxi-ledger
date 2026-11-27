@@ -40,6 +40,12 @@
         <label>Email<input id="loginEmail" type="email" autocomplete="username" required placeholder="nome@email.it"></label>
         <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Almeno 6 caratteri"></label>
         <button class="primary wide" type="submit">Accedi</button>
+         <div class="auth-divider" aria-hidden="true"><span>oppure</span></div>
+         <div class="test-login-card">
+           <div class="test-login-copy"><span class="test-badge">TEST</span><div><strong>Prova Taxi Ledger con dati già caricati</strong><small>Simulazione completa da gennaio a novembre 2026.</small></div></div>
+           <button id="testLoginBtn" class="secondary wide test-login-button" type="button"><span aria-hidden="true">▶</span> Entra come utente di test</button>
+           <small class="test-login-note">Non servono email o password. Le eventuali modifiche restano salvate solo su questo dispositivo.</small>
+         </div>
       </form>
       <form id="registerForm" class="auth-form hidden">
         <div>
@@ -197,6 +203,7 @@
   </dialog>
 
   <script src="shift-data.js"></script>
+  <script src="test-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

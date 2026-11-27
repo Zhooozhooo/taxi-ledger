@@ -3,7 +3,8 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '3.2.4';
+  const APP_VERSION = '3.2.5';
+  const TEST_PROFILE = window.TAXI_TEST_PROFILE || null;
   const SHIFT_PDF_DB = 'taxiLedger.documents.v1';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
@@ -241,6 +242,28 @@
       account.hash=await hashPassword(entered,account.salt); delete account.legacyPassword; delete store.migratedSession; persistStore();
     } else return toast('Email o password non corretti.');
     userEmail = email; localStorage.setItem(SESSION_KEY, email); enterApp();
+  });
+  $('#testLoginBtn').addEventListener('click', () => {
+    if (!TEST_PROFILE?.email || !TEST_PROFILE?.data) return toast('Il profilo di test non è disponibile.');
+    const email = String(TEST_PROFILE.email).trim().toLowerCase();
+    if (!store.accounts[email]) {
+      const name = TEST_PROFILE.name || TEST_PROFILE.data.settings?.name || 'Utente di test';
+      const testData = JSON.parse(JSON.stringify(TEST_PROFILE.data));
+      store.accounts[email] = {
+        name,
+        salt:'',
+        hash:'',
+        isTestAccount:true,
+        seedVersion:TEST_PROFILE.seedVersion || APP_VERSION,
+        createdAt:new Date().toISOString(),
+        data:normalizeData(testData, name)
+      };
+      persistStore();
+    }
+    userEmail = email;
+    localStorage.setItem(SESSION_KEY, email);
+    enterApp();
+    toast('Accesso test effettuato: dati gennaio–novembre 2026 caricati.');
   });
   $('#logoutBtn').addEventListener('click', () => { save(); localStorage.removeItem(SESSION_KEY); userEmail=''; state=null; showAuth(); });
 

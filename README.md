@@ -1,6 +1,13 @@
-# Taxi Ledger 3.2.4
+# Taxi Ledger 3.2.5
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
+
+## Aggiornamento 3.2.5
+
+- nella pagina di accesso è disponibile il pulsante **Entra come utente di test**, senza email o password;
+- al primo accesso viene creato un profilo locale con i dati della simulazione allegata da gennaio a novembre 2026;
+- il profilo test comprende 1.135 incassi, 262 spese, ferie e impostazioni della simulazione;
+- le modifiche al profilo test restano salvate sul dispositivo; eliminando il profilo lo si può ricreare dal pulsante di accesso.
 
 ## Aggiornamento 3.2.4
 
