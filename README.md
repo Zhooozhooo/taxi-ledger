@@ -1,4 +1,4 @@
-# Taxi Ledger 2.3
+# Taxi Ledger 2.4
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -43,6 +43,19 @@ I giorni lavorativi restanti escludono fine settimana e periodi di ferie registr
 - menu laterale accessibile anche da iPhone tramite il pulsante in alto a sinistra.
 
 La turnazione ufficiale incorporata copre il periodo **10 gennaio 2026 - 15 gennaio 2027**. Le eventuali modifiche amministrative successive devono essere recepite con un aggiornamento dell'app.
+
+## Assegnazioni mensili seconda guida 2.4
+
+- selezione dell'anno nelle Impostazioni della seconda guida;
+- marcatura indipendente dei dodici mesi effettivamente assegnati;
+- riepilogo immediato del numero di mesi e del reddito contrattualizzato previsto;
+- Consuntivo mensile: il compenso entra nei totali e nella base fiscale/contributiva solo se il mese selezionato è assegnato;
+- Consuntivo annuale: il compenso è moltiplicato esclusivamente per il numero di mesi assegnati nell'anno.
+- campo **Turno** degli incassi trasformato in una lista modificabile dei turni disponibili, con proposta automatica dalla turnazione;
+- campo **Note** separato per i dettagli liberi dell'incasso;
+- calendario grafico mensile nella sezione Turni, navigabile mese per mese, con turni previsti, ferie personali e riposi imposti.
+
+Le configurazioni sono archiviate separatamente per anno e incluse nei backup JSON.
 
 ## Pubblicazione su GitHub Pages
 
