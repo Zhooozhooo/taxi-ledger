@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.5.0';
+  const APP_VERSION = '2.7.0';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -14,6 +14,11 @@
   const currentYear = today.slice(0, 4);
   const monthNames = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
   const revenueShiftOptions = ['Mattina 1','Mattina 2','Intermedio','Pomeriggio 1','Pomeriggio 2','Seminotte','Notte','Mattina fissa','Pomeriggio fissa','Turno rosa','Turno spezzato','Mattina','Pomeriggio','Altro'];
+  const revenueMethods = {
+    card:{label:'Carta',fee:0,cardLike:true}, cash:{label:'Contanti',fee:0,cardLike:false},
+    uber:{label:'Uber',fee:7,cardLike:true}, freenow:{label:'FreeNow',fee:10,cardLike:true}, ittaxi:{label:'ITTaxi',fee:0,cardLike:true}
+  };
+  const revenueMethod = method => revenueMethods[method] || revenueMethods.cash;
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const money = value => new Intl.NumberFormat('it-IT', {style:'currency', currency:'EUR'}).format(Number(value) || 0);
@@ -37,6 +42,7 @@
   let selectedSecondDriverYear = currentYear;
   let shiftCalendarMonth = currentMonth;
   let holidayCalendarMonth = currentMonth;
+  let recentMovementFilter = 'all';
 
   function loadStore() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {accounts:{}}; }
@@ -47,7 +53,7 @@
     return {
       version: APP_VERSION,
       revenues: [], expenses: [], holidays: [],
-      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, secondDriverAssignments:{}, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true}
+      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, secondDriverCashAmount:0, secondDriverAssignments:{}, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true}
     };
   }
   function normalizeRevenue(item) {
@@ -176,10 +182,16 @@
     const expenses = state.expenses.filter(r => r.status !== 'planned' && inPeriod(r.date, type, value));
     const cash = revenues.filter(r => r.method === 'cash').reduce((s,r) => s + Number(r.amount), 0);
     const card = revenues.filter(r => r.method === 'card').reduce((s,r) => s + Number(r.amount), 0);
+    const uber = revenues.filter(r => r.method === 'uber').reduce((s,r) => s + Number(r.amount), 0);
+    const freenow = revenues.filter(r => r.method === 'freenow').reduce((s,r) => s + Number(r.amount), 0);
+    const ittaxi = revenues.filter(r => r.method === 'ittaxi').reduce((s,r) => s + Number(r.amount), 0);
+    const cardLike = card + uber + freenow + ittaxi;
+    const platformFees = uber*.07 + freenow*.10;
     const expenseTotal = expenses.reduce((s,r) => s + Number(r.amount), 0);
-    const revenueTotal = cash + card;
-    const margin = revenueTotal - expenseTotal;
-    return {revenues, expenses, cash, card, revenueTotal, expenseTotal, margin};
+    const revenueTotal = cash + cardLike;
+    const netRevenue = revenueTotal-platformFees;
+    const margin = netRevenue - expenseTotal;
+    return {revenues, expenses, cash, card, uber, freenow, ittaxi, cardLike, platformFees, revenueTotal, netRevenue, expenseTotal, margin};
   }
   function holidaySet(start, end) {
     const set = new Set();
@@ -241,13 +253,13 @@
     const value = dashValues[dashPeriod] || (dashPeriod==='day'?today:dashPeriod==='month'?currentMonth:currentYear);
     const d = totals(dashPeriod,value), p = projection(dashPeriod,value,d);
     const secondDriver = dashPeriod==='day' ? {count:0,income:0} : secondDriverForReport(dashPeriod==='month'?{type:'month',value}:{type:'year',value:String(value)});
-    const cardShare = d.revenueTotal ? d.card/d.revenueTotal*100 : 0, cashShare = d.revenueTotal ? d.cash/d.revenueTotal*100 : 0;
+    const cardShare = d.revenueTotal ? d.cardLike/d.revenueTotal*100 : 0, cashShare = d.revenueTotal ? d.cash/d.revenueTotal*100 : 0;
     const marginShare = d.revenueTotal ? d.margin/d.revenueTotal*100 : 0;
     let cards = kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
-    cards += kpi('▣','CARTA',money(d.card),`${pct(cardShare)} degli incassi`);
+    cards += kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
-    cards += kpi('◇','MARGINE',money(d.margin),`${pct(marginShare)} sugli incassi`);
-    if (dashPeriod!=='day') cards += kpi('♙','INTROITO SECONDA GUIDA',money(secondDriver.income),secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese assegnato':'mesi assegnati'}`:(state.settings.secondDriver?'Nessun mese assegnato':'Seconda guida non attiva'));
+    cards += kpi('◇','MARGINE',money(d.margin),`${pct(marginShare)} dopo costi e fee`);
+    if (dashPeriod!=='day') cards += kpi('♙','INTROITO SECONDA GUIDA',money(secondDriver.income),secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese':'mesi'} · imponibile ${money(secondDriver.taxableIncome)} · contanti ${money(secondDriver.cashIncome)}`:(state.settings.secondDriver?'Nessun mese assegnato':'Seconda guida non attiva'));
     if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi');
     $('#dashboardKpis').innerHTML = cards;
     const proj = $('#projectionNote');
@@ -257,33 +269,44 @@
     else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> ${p.revenueDays} ${p.revenueDays===1?'giorno distinto':'giorni distinti'} con incassi nel periodo concluso.`;
     else proj.innerHTML = `<strong>Periodo futuro:</strong> totale non ancora disponibile; sono previsti ${p.totalDays} giorni lavorativi al netto delle ferie.`;
     $('#revenueTotalBadge').textContent = money(d.revenueTotal);
-    $('#revenueMix').innerHTML = `<div class="mix-bar" aria-label="Carta ${pct(cardShare)}, contanti ${pct(cashShare)}"><span class="mix-card" style="width:${cardShare}%"></span><span class="mix-cash" style="width:${cashShare}%"></span></div><div class="mix-legend"><div class="legend-item"><i class="legend-dot mix-card"></i><small>Carta<br><strong>${pct(cardShare)}</strong></small><strong>${money(d.card)}</strong></div><div class="legend-item"><i class="legend-dot mix-cash"></i><small>Contanti<br><strong>${pct(cashShare)}</strong></small><strong>${money(d.cash)}</strong></div></div>`;
-    const movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.expenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
-    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>`<div class="movement ${x.kind}"><span class="movement-icon">${x.kind==='revenue'?'↗':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.method==='card'?'Carta':'Contanti'}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'?'−':'+'}${money(x.amount)}</span></div>`).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati nel periodo selezionato.</div>`;
+    const revenueTypes=[['Carta',d.card,0],['Contanti',d.cash,0],['Uber',d.uber,7],['FreeNow',d.freenow,10],['ITTaxi',d.ittaxi,0]].filter(x=>x[1]>0);
+    const revenueTypeRows=revenueTypes.map(([label,amount,fee],index)=>{const share=d.revenueTotal?amount/d.revenueTotal*100:0;return `<div class="type-row"><i class="type-dot type-color-${index%8}"></i><span>${label}${fee?` <small>fee ${fee}%</small>`:''}</span><div class="type-track"><i class="type-fill type-color-${index%8}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
+    const expenseTypes=new Map(); d.expenses.forEach(x=>expenseTypes.set(x.category||'Altro',(expenseTypes.get(x.category||'Altro')||0)+Number(x.amount)));
+    const expenseRows=[...expenseTypes.entries()].sort((a,b)=>b[1]-a[1]).map(([label,amount],index)=>{const share=d.expenseTotal?amount/d.expenseTotal*100:0;return `<div class="type-row"><i class="type-dot expense-color-${index%6}"></i><span>${esc(label)}</span><div class="type-track"><i class="type-fill expense-color-${index%6}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
+    $('#revenueMix').innerHTML = `<div class="mix-section"><span class="mix-section-title">Tipologie di incasso</span>${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div><div class="mix-section shift-type-mix"><span class="mix-section-title">Tipologie di spesa</span>${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
+    let movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.expenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date));
+    if(recentMovementFilter!=='all') movements=movements.filter(x=>x.kind===recentMovementFilter);
+    movements=movements.slice(0,6);
+    $('#recentMovementFilter').value=recentMovementFilter;
+    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>`<div class="movement ${x.kind}"><span class="movement-icon">${x.kind==='revenue'?'↗':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.kind==='revenue'?revenueMethod(x.method).label:(x.method==='card'?'Carta':'Contanti')}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'?'−':'+'}${money(x.amount)}</span></div>`).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati per il filtro selezionato.</div>`;
   }
+  $('#recentMovementFilter').addEventListener('change',e=>{recentMovementFilter=e.target.value;renderDashboard();});
 
   function summaryCards(total, card, cash, noun='incassi') {
     const cp = total ? card/total*100 : 0, hp = total ? cash/total*100 : 0;
     return `<div class="mini-card"><span>Totale ${noun}</span><strong>${money(total)}</strong><small>${noun==='spese'?'sostenute nel periodo':'complessivi'}</small></div><div class="mini-card"><span>Carta</span><strong>${money(card)}</strong><small>${pct(cp)} del totale</small></div><div class="mini-card"><span>Contanti</span><strong>${money(cash)}</strong><small>${pct(hp)} del totale</small></div>`;
   }
   function renderRevenues() {
-    const q = $('#revenueSearch').value.trim().toLowerCase(), period = $('#revenueMonthFilter').value;
-    const rows = state.revenues.filter(r => (!period || r.date.startsWith(period)) && (!q || `${r.shift} ${r.note} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
-    const card = rows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
-    $('#revenueSummary').innerHTML = summaryCards(card+cash,card,cash);
-    $('#revenueTable').innerHTML = rows.map(r=>`<tr><td><button class="edit-btn" data-edit="revenue" data-id="${r.id}" aria-label="Modifica incasso">✎</button></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.shift || 'Non indicato')}</strong></td><td>${esc(r.note || '—')}</td><td><span class="method ${r.method}">${r.method==='card'?'Carta':'Contanti'}</span></td><td class="num"><strong>${money(r.amount)}</strong></td></tr>`).join('');
-    $('#revenueEmpty').classList.toggle('hidden', rows.length>0); $('#revenueEmpty').innerHTML='<strong>Nessun incasso</strong>Prova a cambiare periodo o aggiungi il primo movimento.';
+    const dateFilter=$('#revenueDayFilter'); if(!dateFilter.value)dateFilter.value=today;
+    const q = $('#revenueSearch').value.trim().toLowerCase(), day = dateFilter.value;
+    const rows = state.revenues.filter(r => r.date===day && (!q || `${r.shift} ${r.note} ${revenueMethod(r.method).label} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
+    const cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0), traced = rows.filter(r=>revenueMethod(r.method).cardLike).reduce((s,r)=>s+Number(r.amount),0);
+    const fees=rows.reduce((s,r)=>s+Number(r.amount)*revenueMethod(r.method).fee/100,0);
+    $('#revenueSummary').innerHTML = summaryCards(traced+cash,traced,cash).replace('Carta</span>','Tracciati</span>')+(fees?`<div class="mini-card fee-card"><span>Fee piattaforme</span><strong>− ${money(fees)}</strong><small>Uber 7% · FreeNow 10%</small></div>`:'');
+    $('#revenueTable').innerHTML = rows.map(r=>{const method=revenueMethod(r.method),fee=Number(r.amount)*method.fee/100;return `<tr><td><button class="edit-btn" data-edit="revenue" data-id="${r.id}" aria-label="Modifica incasso">✎</button></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.shift || 'Non indicato')}</strong></td><td>${esc(r.note || '—')}</td><td><span class="method ${r.method}">${method.label}</span>${fee?`<br><small class="fee-note">Fee − ${money(fee)}</small>`:''}</td><td class="num"><strong>${money(r.amount)}</strong>${fee?`<br><small class="fee-note">Netto ${money(Number(r.amount)-fee)}</small>`:''}</td></tr>`;}).join('');
+    $('#revenueEmpty').classList.toggle('hidden', rows.length>0); $('#revenueEmpty').innerHTML=`<strong>Nessun incasso il ${dateLabel(day)}</strong>Seleziona un altro giorno o aggiungi il primo movimento.`;
   }
   function renderExpenses() {
-    const q = $('#expenseSearch').value.trim().toLowerCase(), period = $('#expenseMonthFilter').value;
-    const rows = state.expenses.filter(r => (!period || r.date.startsWith(period)) && (!q || `${r.note} ${r.category} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
+    const dateFilter=$('#expenseDayFilter'); if(!dateFilter.value)dateFilter.value=today;
+    const q = $('#expenseSearch').value.trim().toLowerCase(), day = dateFilter.value;
+    const rows = state.expenses.filter(r => r.date===day && (!q || `${r.note} ${r.category} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
     const card = rows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
     $('#expenseSummary').innerHTML = summaryCards(card+cash,card,cash,'spese');
     $('#expenseTable').innerHTML = rows.map(r=>`<tr><td><button class="edit-btn" data-edit="expense" data-id="${r.id}" aria-label="Modifica spesa">✎</button></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.category)}</strong><br><small class="muted">${esc(r.note||'')}</small></td><td><span class="state ${r.status}">${r.status==='planned'?'Pianificata':'Pagata'}</span></td><td><span class="method ${r.method}">${r.method==='card'?'Carta':'Contanti'}</span></td><td class="num"><strong>${money(r.amount)}</strong></td></tr>`).join('');
-    $('#expenseEmpty').classList.toggle('hidden', rows.length>0); $('#expenseEmpty').innerHTML='<strong>Nessuna spesa</strong>Prova a cambiare periodo o aggiungi il primo costo.';
+    $('#expenseEmpty').classList.toggle('hidden', rows.length>0); $('#expenseEmpty').innerHTML=`<strong>Nessuna spesa il ${dateLabel(day)}</strong>Seleziona un altro giorno o aggiungi il primo costo.`;
   }
-  ['revenueSearch','revenueMonthFilter'].forEach(id=>$('#'+id).addEventListener('input',renderRevenues));
-  ['expenseSearch','expenseMonthFilter'].forEach(id=>$('#'+id).addEventListener('input',renderExpenses));
+  ['revenueSearch','revenueDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderRevenues));
+  ['expenseSearch','expenseDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderExpenses));
 
   function shiftDateLabel(start,end) {
     const a=parseDate(start), b=parseDate(end);
@@ -421,7 +444,8 @@
     const year=String(filter.value).slice(0,4), assigned=assignedSecondDriverMonths(year);
     const included=filter.type==='year'?assigned:assigned.filter(month=>month===filter.value.slice(5,7));
     const active=!!state.settings.secondDriver;
-    return {year,assigned,included,count:active?included.length:0,income:active?included.length*Number(state.settings.secondDriverAmount||0):0};
+    const count=active?included.length:0, taxableIncome=count*Number(state.settings.secondDriverAmount||0), cashIncome=count*Number(state.settings.secondDriverCashAmount||0);
+    return {year,assigned,included,count,taxableIncome,cashIncome,income:taxableIncome+cashIncome};
   }
   function populateReportYears() {
     const years = new Set([currentYear]);
@@ -436,8 +460,8 @@
     const reportYear=Number(f.value.slice(0,4)), activityYear=Math.max(1,reportYear-Number(s.startYear||reportYear)+1);
     const effectiveTaxRate=activityYear<=5?Number(s.taxRateFirst??s.taxRate??5):Number(s.taxRateAfter??10);
     const secondDriver=secondDriverForReport(f), secondDriverIncome=secondDriver.income;
-    const totalIncome=d.revenueTotal+secondDriverIncome;
-    const grossBase = (s.cardOnly ? d.card : d.revenueTotal) + secondDriverIncome;
+    const totalIncome=d.netRevenue+secondDriverIncome;
+    const grossBase = (s.cardOnly ? d.cardLike : d.revenueTotal) + secondDriver.taxableIncome;
     const taxableBase = grossBase * Number(s.profitability)/100;
     const variableInps = taxableBase * Number(s.inpsRate)/100;
     const fixedInps = Number(s.inpsFixed||0) * f.months/12;
@@ -446,10 +470,10 @@
     const tax = afterInps * effectiveTaxRate/100;
     const reserve = inps+tax;
     const net = totalIncome-d.expenseTotal-reserve;
-    $('#reportHero').innerHTML=`<div><p class="eyebrow">ACCANTONAMENTO STIMATO · ${esc(f.label).toUpperCase()}</p><h3>${money(reserve)}</h3><p>INPS e imposta sostitutiva calcolati sulla base configurata. Disponibile stimato dopo costi e accantonamento: <strong>${money(net)}</strong>.</p></div><aside><div><span>Incassi taxi</span><strong>${money(d.revenueTotal)}</strong></div>${s.secondDriver?`<div><span>Reddito seconda guida (${secondDriver.count} ${secondDriver.count===1?'mese':'mesi'})</span><strong>+ ${money(secondDriverIncome)}</strong></div>`:''}<div><span>Spese pagate</span><strong>− ${money(d.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>− ${money(reserve)}</strong></div></aside>`;
-    const assignmentText=!s.secondDriver?'Non attiva nelle impostazioni':secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese assegnato':'mesi assegnati'} · ${money(s.secondDriverAmount)} al mese`:f.type==='month'?'Mese non assegnato':'Nessun mese assegnato nell’anno';
-    $('#reportBreakdown').innerHTML=`<div class="report-card"><span>Ricavi carta</span><strong>${money(d.card)}</strong><small>${pct(d.revenueTotal?d.card/d.revenueTotal*100:0)} del totale · inclusi nella base</small></div><div class="report-card"><span>Ricavi contanti</span><strong>${money(d.cash)}</strong><small>${pct(d.revenueTotal?d.cash/d.revenueTotal*100:0)} del totale · ${s.cardOnly?'esclusi':'inclusi'} dalla base</small></div><div class="report-card"><span>Reddito seconda guida</span><strong>${money(secondDriverIncome)}</strong><small>${assignmentText}${secondDriver.count?' · incluso nella base':''}</small></div><div class="report-card"><span>Costo INPS</span><strong>${money(inps)}</strong><small>${pct(s.inpsRate)} sulla base + quota fissa</small></div><div class="report-card"><span>Imposta sostitutiva</span><strong>${money(tax)}</strong><small>${pct(effectiveTaxRate)} · anno ${activityYear} di attività</small></div>`;
-    $('#formulaSteps').innerHTML=`<div class="formula-step"><i>1</i><span>Ricavi di riferimento (${s.cardOnly?'carta':'carta + contanti'}${secondDriverIncome?' + seconda guida':''})</span><strong>${money(grossBase)}</strong></div><div class="formula-step"><i>2</i><span>Base imponibile × coefficiente ${pct(s.profitability)}</span><strong>${money(taxableBase)}</strong></div><div class="formula-step"><i>3</i><span>INPS variabile ${pct(s.inpsRate)} + quota fissa ${money(fixedInps)}</span><strong>− ${money(inps)}</strong></div><div class="formula-step"><i>4</i><span>Base dopo deduzione INPS</span><strong>${money(afterInps)}</strong></div><div class="formula-step"><i>5</i><span>Imposta sostitutiva ${pct(effectiveTaxRate)} (anno ${activityYear})</span><strong>${money(tax)}</strong></div>`;
+    $('#reportHero').innerHTML=`<div><p class="eyebrow">ACCANTONAMENTO STIMATO · ${esc(f.label).toUpperCase()}</p><h3>${money(reserve)}</h3><p>INPS e imposta sostitutiva calcolati sulla sola base imponibile. Disponibile stimato dopo fee, costi e accantonamento: <strong>${money(net)}</strong>.</p></div><aside><div><span>Incassi taxi lordi</span><strong>${money(d.revenueTotal)}</strong></div>${d.platformFees?`<div><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}${s.secondDriver?`<div><span>Seconda guida imponibile</span><strong>+ ${money(secondDriver.taxableIncome)}</strong></div><div><span>Seconda guida contanti</span><strong>+ ${money(secondDriver.cashIncome)}</strong></div>`:''}<div><span>Spese pagate</span><strong>− ${money(d.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>− ${money(reserve)}</strong></div></aside>`;
+    const assignmentText=!s.secondDriver?'Non attiva nelle impostazioni':secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese assegnato':'mesi assegnati'}`:f.type==='month'?'Mese non assegnato':'Nessun mese assegnato nell’anno';
+    $('#reportBreakdown').innerHTML=`<div class="report-card"><span>Ricavi tracciati</span><strong>${money(d.cardLike)}</strong><small>Carta, Uber, FreeNow e ITTaxi · inclusi nella base</small></div><div class="report-card"><span>Ricavi contanti</span><strong>${money(d.cash)}</strong><small>${s.cardOnly?'Esclusi':'Inclusi'} dalla base</small></div><div class="report-card"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong><small>Uber 7% · FreeNow 10%</small></div><div class="report-card"><span>Seconda guida imponibile</span><strong>${money(secondDriver.taxableIncome)}</strong><small>${assignmentText}${secondDriver.count?' · incluso nella base':''}</small></div><div class="report-card"><span>Seconda guida contanti</span><strong>${money(secondDriver.cashIncome)}</strong><small>${assignmentText} · sempre escluso dalla base</small></div><div class="report-card"><span>Costo INPS</span><strong>${money(inps)}</strong><small>${pct(s.inpsRate)} sulla base + quota fissa</small></div><div class="report-card"><span>Imposta sostitutiva</span><strong>${money(tax)}</strong><small>${pct(effectiveTaxRate)} · anno ${activityYear} di attività</small></div>`;
+    $('#formulaSteps').innerHTML=`<div class="formula-step"><i>1</i><span>Ricavi imponibili (${s.cardOnly?'tracciati':'tutti'} + seconda guida imponibile)</span><strong>${money(grossBase)}</strong></div><div class="formula-step"><i>2</i><span>Base imponibile × coefficiente ${pct(s.profitability)}</span><strong>${money(taxableBase)}</strong></div><div class="formula-step"><i>3</i><span>INPS variabile ${pct(s.inpsRate)} + quota fissa ${money(fixedInps)}</span><strong>− ${money(inps)}</strong></div><div class="formula-step"><i>4</i><span>Base dopo deduzione INPS</span><strong>${money(afterInps)}</strong></div><div class="formula-step"><i>5</i><span>Imposta sostitutiva ${pct(effectiveTaxRate)} (anno ${activityYear})</span><strong>${money(tax)}</strong></div>`;
     renderReportDetail(f,d,secondDriver,reserve,net);
   }
   function renderReportDetail(filter,data,secondDriver,reserve,net) {
@@ -457,9 +481,9 @@
     const expenses=[...data.expenses].sort((a,b)=>a.date.localeCompare(b.date));
     $('#reportDetailTitle').textContent=filter.type==='month'?`Movimenti di ${filter.label}`:'Seleziona un mese per l’esportazione dettagliata';
     $('#reportDetailCount').textContent=`${revenues.length+expenses.length} movimenti`;
-    const revenueRows=revenues.length?revenues.map(r=>`<tr><td>${dateLabel(r.date)}</td><td>${esc(r.shift||'Non indicato')}</td><td>${esc(r.note||'—')}</td><td>${r.method==='card'?'Carta':'Contanti'}</td><td class="num">${money(r.amount)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Nessun incasso nel mese.</td></tr>';
+    const revenueRows=revenues.length?revenues.map(r=>{const method=revenueMethod(r.method),fee=Number(r.amount)*method.fee/100;return `<tr><td>${dateLabel(r.date)}</td><td>${esc(r.shift||'Non indicato')}</td><td>${esc(r.note||'—')}</td><td>${method.label}${fee?` · fee ${money(fee)}`:''}</td><td class="num">${money(r.amount)}</td></tr>`;}).join(''):'<tr><td colspan="5" class="muted">Nessun incasso nel mese.</td></tr>';
     const expenseRows=expenses.length?expenses.map(x=>`<tr><td>${dateLabel(x.date)}</td><td>${esc(x.category||'Spesa')}</td><td>${esc(x.note||'—')}</td><td>${x.status==='planned'?'Pianificata':'Pagata'} · ${x.method==='card'?'Carta':'Contanti'}</td><td class="num">${money(x.amount)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Nessuna spesa pagata nel mese.</td></tr>';
-    $('#reportDetailBody').innerHTML=`<div class="detail-summary"><div><span>Incassi taxi</span><strong>${money(data.revenueTotal)}</strong></div><div><span>Seconda guida</span><strong>${money(secondDriver.income)}</strong><small>${secondDriver.count?`${secondDriver.count} mese assegnato`:'Mese non assegnato'}</small></div><div><span>Spese pagate</span><strong>${money(data.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>${money(reserve)}</strong></div><div><span>Disponibile stimato</span><strong>${money(net)}</strong></div></div><div class="detail-table-block"><h4>Incassi</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turno</th><th>Note</th><th>Metodo</th><th class="num">Importo</th></tr></thead><tbody>${revenueRows}</tbody></table></div></div><div class="detail-table-block"><h4>Spese pagate</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Categoria</th><th>Note</th><th>Stato e metodo</th><th class="num">Importo</th></tr></thead><tbody>${expenseRows}</tbody></table></div></div>`;
+    $('#reportDetailBody').innerHTML=`<div class="detail-summary"><div><span>Incassi taxi lordi</span><strong>${money(data.revenueTotal)}</strong><small>Fee ${money(data.platformFees)}</small></div><div><span>Seconda guida imponibile</span><strong>${money(secondDriver.taxableIncome)}</strong></div><div><span>Seconda guida contanti</span><strong>${money(secondDriver.cashIncome)}</strong><small>Non imponibile</small></div><div><span>Spese pagate</span><strong>${money(data.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>${money(reserve)}</strong></div><div><span>Disponibile stimato</span><strong>${money(net)}</strong></div></div><div class="detail-table-block"><h4>Incassi</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turno</th><th>Note</th><th>Tipologia</th><th class="num">Importo lordo</th></tr></thead><tbody>${revenueRows}</tbody></table></div></div><div class="detail-table-block"><h4>Spese pagate</h4><div class="table-wrap"><table><thead><tr><th>Data</th><th>Categoria</th><th>Note</th><th>Stato e metodo</th><th class="num">Importo</th></tr></thead><tbody>${expenseRows}</tbody></table></div></div>`;
   }
   $('#reportYear').addEventListener('change',renderReport); $('#reportMonth').addEventListener('change',renderReport);
   function printMonthlyReport(mode) {
@@ -482,15 +506,16 @@
     $('#settingsSecondDriverYear').innerHTML=[...years].sort((a,b)=>b-a).map(y=>`<option value="${y}" ${y===selectedSecondDriverYear?'selected':''}>${y}</option>`).join('');
   }
   function renderSecondDriverAssignments() {
-    const assigned=assignedSecondDriverMonths(selectedSecondDriverYear), amount=Number($('#settingsSecondDriverAmount').value)||0;
+    const assigned=assignedSecondDriverMonths(selectedSecondDriverYear), amount=Number($('#settingsSecondDriverAmount').value)||0, cashAmount=Number($('#settingsSecondDriverCashAmount').value)||0;
     $('#secondDriverMonthGrid').innerHTML=monthNames.map((name,index)=>{
       const month=pad(index+1), checked=assigned.includes(month);
       return `<label class="month-assignment ${checked?'selected':''}"><input type="checkbox" value="${month}" ${checked?'checked':''}><span>${name.slice(0,3)}</span></label>`;
     }).join('');
-    $('#secondDriverAssignmentSummary').innerHTML=`<strong>${assigned.length} ${assigned.length===1?'mese assegnato':'mesi assegnati'} nel ${selectedSecondDriverYear}</strong><span>Reddito seconda guida previsto: ${money(assigned.length*amount)}</span>`;
+    $('#secondDriverAssignmentSummary').innerHTML=`<strong>${assigned.length} ${assigned.length===1?'mese assegnato':'mesi assegnati'} nel ${selectedSecondDriverYear}</strong><span>Imponibile ${money(assigned.length*amount)} · Contanti non imponibili ${money(assigned.length*cashAmount)} · Totale ${money(assigned.length*(amount+cashAmount))}</span>`;
   }
   $('#settingsSecondDriverYear').addEventListener('change',e=>{selectedSecondDriverYear=e.target.value; renderSecondDriverAssignments();});
   $('#settingsSecondDriverAmount').addEventListener('input',renderSecondDriverAssignments);
+  $('#settingsSecondDriverCashAmount').addEventListener('input',renderSecondDriverAssignments);
   $('#secondDriverMonthGrid').addEventListener('change',e=>{
     if(!e.target.matches('input[type="checkbox"]')) return;
     const month=e.target.value, assigned=new Set(assignedSecondDriverMonths(selectedSecondDriverYear));
@@ -503,14 +528,14 @@
     const s=state.settings;
     $('#settingsName').value=s.name||''; $('#settingsBusiness').value=s.business||''; $('#settingsCurrency').value=s.currency||'EUR';
     $('#settingsLicense').value=s.license||''; $('#settingsLicenseType').value=s.licenseType||'ordinary'; $('#settingsShiftMode').value=s.shiftMode||'official';
-    $('#settingsSecondDriver').checked=!!s.secondDriver; $('#settingsSecondDriverAmount').value=s.secondDriverAmount||0;
+    $('#settingsSecondDriver').checked=!!s.secondDriver; $('#settingsSecondDriverAmount').value=s.secondDriverAmount||0; $('#settingsSecondDriverCashAmount').value=s.secondDriverCashAmount||0;
     $('#settingsStartYear').value=s.startYear||currentYear; $('#settingsTaxRateFirst').value=s.taxRateFirst??s.taxRate??5; $('#settingsTaxRateAfter').value=s.taxRateAfter??10; $('#settingsProfitability').value=s.profitability; $('#settingsInpsRate').value=s.inpsRate; $('#settingsInpsFixed').value=s.inpsFixed; $('#settingsCardOnly').checked=!!s.cardOnly;
     populateSecondDriverYears(); renderSecondDriverAssignments();
   }
   $('#saveSettings').addEventListener('click',()=>{
     const name=$('#settingsName').value.trim(); if(!name) return toast('Inserisci un nome visualizzato.');
     const license=Number.parseInt($('#settingsLicense').value,10)||'';
-    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked};
+    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,secondDriverCashAmount:Number($('#settingsSecondDriverCashAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked};
     syncMandatoryHolidays();
     save(); syncIdentity(); renderAll(); toast('Impostazioni aggiornate.');
   });
@@ -537,7 +562,7 @@
   });
 
   const fieldTemplates={
-    revenue:item=>{const suggested=item.id?(item.shift||''):suggestedRevenueShift(item.date||today); return `<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label>Turno<select name="shift" required><option value="">Seleziona turno</option>${revenueShiftOptions.map(x=>`<option value="${esc(x)}" ${suggested===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small id="revenueShiftHint" class="field-hint"></small></label><label class="full">Note<textarea name="note" maxlength="250" placeholder="Dettagli facoltativi sull'incasso">${esc(item.note||'')}</textarea></label>`;},
+    revenue:item=>{const suggested=item.id?(item.shift||''):suggestedRevenueShift(item.date||today),method=item.method||'card'; return `<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo lordo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Tipologia incasso<select name="method">${Object.entries(revenueMethods).map(([key,meta])=>`<option value="${key}" ${method===key?'selected':''}>${meta.label}${meta.fee?` - fee ${meta.fee}%`:''}</option>`).join('')}</select><small id="revenueMethodHint" class="field-hint"></small></label><label>Turno<select name="shift" required><option value="">Seleziona turno</option>${revenueShiftOptions.map(x=>`<option value="${esc(x)}" ${suggested===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small id="revenueShiftHint" class="field-hint"></small></label><label class="full">Note<textarea name="note" maxlength="250" placeholder="Dettagli facoltativi sull'incasso">${esc(item.note||'')}</textarea></label>`;},
     expense:item=>`<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${['Carburante','Canone','Manutenzione','Gomme','Assicurazione','Lavaggio','Pedaggi','Altro'].map(x=>`<option ${item.category===x?'selected':''}>${x}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="paid" ${item.status!=='planned'?'selected':''}>Pagata</option><option value="planned" ${item.status==='planned'?'selected':''}>Pianificata</option></select></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`,
     holiday:item=>`<label>Dal<input name="start" type="date" required value="${item.start||today}"></label><label>Al<input name="end" type="date" required value="${item.end||today}"></label><label class="full">Nome periodo<input name="name" required maxlength="80" value="${esc(item.name||'Ferie')}" placeholder="Es. Ferie estive"></label><label class="full">Nota<input name="note" maxlength="120" value="${esc(item.note||'')}" placeholder="Facoltativa"></label>`
   };
@@ -551,14 +576,17 @@
     $('#modalTitle').textContent=id?`Modifica ${names[type]}`:newLabels[type];
     $('#deleteEntry').classList.toggle('hidden',!id); $('#entryDialog').showModal();
     if(type==='revenue') {
-      const dateField=$('#entryFields [name="date"]'), shiftField=$('#entryFields [name="shift"]');
+      const dateField=$('#entryFields [name="date"]'), shiftField=$('#entryFields [name="shift"]'), methodField=$('#entryFields [name="method"]'), amountField=$('#entryFields [name="amount"]');
       let autoShift=id?'':suggestedRevenueShift(dateField.value);
       const updateHint=()=>{
         const shift=shiftForDate(dateField.value), hint=$('#revenueShiftHint');
         hint.textContent=shift?(shift.turn?`Proposta da turnazione: T${shift.turn} ${shift.name}, gruppo ${pad(shift.group)}. Puoi scegliere un altro turno.`:`Proposta: ${shift.name}. Puoi scegliere un altro turno.`):'Nessun turno ufficiale disponibile: seleziona il turno dalla lista.';
       };
       dateField.addEventListener('change',()=>{const next=suggestedRevenueShift(dateField.value); if(!id&&(shiftField.value===''||shiftField.value===autoShift)) shiftField.value=next; autoShift=next; updateHint();});
+      const updateMethodHint=()=>{const meta=revenueMethod(methodField.value),amount=Number(amountField.value)||0,fee=amount*meta.fee/100;$('#revenueMethodHint').textContent=meta.fee?`Fee ${meta.fee}%: ${money(fee)} · netto previsto ${money(amount-fee)}.`:meta.cardLike?'Considerato come carta ai fini dell’imponibile.':'Contante escluso dall’imponibile se l’opzione fiscale è attiva.';};
+      methodField.addEventListener('change',updateMethodHint); amountField.addEventListener('input',updateMethodHint);
       updateHint();
+      updateMethodHint();
     }
   }
   $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickExpense').addEventListener('click',()=>openEntry('expense')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
@@ -570,6 +598,8 @@
     const list=type==='revenue'?state.revenues:type==='expense'?state.expenses:state.holidays;
     const obj={id:id||uuid(),...fd}; if(fd.amount)obj.amount=Number(fd.amount);
     const index=list.findIndex(x=>x.id===id); if(index>=0)list[index]=obj; else list.push(obj);
+    if(type==='revenue')$('#revenueDayFilter').value=fd.date;
+    if(type==='expense')$('#expenseDayFilter').value=fd.date;
     save(); populateReportYears(); renderAll(); $('#entryDialog').close(); toast(id?'Modifica salvata.':'Elemento aggiunto.');
   });
   $('#deleteEntry').addEventListener('click',()=>{

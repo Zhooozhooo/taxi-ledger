@@ -1,4 +1,4 @@
-# Taxi Ledger 2.5
+# Taxi Ledger 2.7
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -66,6 +66,23 @@ Le configurazioni sono archiviate separatamente per anno e incluse nei backup JS
 - l'indicatore usa esclusivamente i mesi effettivamente marcati come assegnati per l'anno consultato.
 - esportazione PDF **sintetica mensile** con totali, accantonamento e calcolo fiscale;
 - esportazione PDF **dettagliata mensile** con il riepilogo e l'elenco di incassi e spese del mese.
+
+## Filtri giornalieri e composizione incassi 2.6
+
+- le sezioni **Incassi** e **Spese** mostrano un solo giorno alla volta;
+- il selettore è impostato automaticamente sulla data odierna a ogni accesso;
+- ricerca testuale applicata esclusivamente ai movimenti del giorno scelto;
+- la Composizione incassi del Cruscotto mantiene lo split carta/contanti e aggiunge lo split per tipologia di turno;
+- per ogni turno sono mostrati importo, percentuale sul totale e barra comparativa.
+
+## Piattaforme e analisi completa 2.7
+
+- nuove tipologie di incasso **Uber** (fee 7%), **FreeNow** (fee 10%) e **ITTaxi** (senza fee);
+- le tre piattaforme sono trattate come la carta nella base imponibile, mentre le fee sono detratte dal margine e dal disponibile;
+- seconda guida con quota imponibile e quota mensile in contanti sempre esclusa dall'imponibile;
+- Composizione del Cruscotto con split completo per tipologia di incasso e categoria di spesa;
+- filtro `Tutti / Solo incassi / Solo spese` negli Ultimi movimenti;
+- mantenuti i selettori giornalieri, con default sulla data odierna, nelle sezioni Incassi e Spese.
 
 ## Pubblicazione su GitHub Pages
 
