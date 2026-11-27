@@ -92,10 +92,11 @@
           </div>
           <div id="globalReminderBanner" class="reminder-banner hidden" role="status" aria-live="polite"></div>
           <div id="dashboardKpis" class="kpi-grid"></div>
-          <div class="dashboard-grid">
-            <article class="card"><div class="card-heading"><div><p class="eyebrow">COMPOSIZIONE</p><h3>Incassi e spese</h3></div><span id="revenueTotalBadge" class="pill"></span></div><div id="revenueMix" class="mix-chart"></div></article>
-            <article class="card"><div class="card-heading recent-heading"><div><p class="eyebrow">ULTIMI MOVIMENTI</p><h3>Attività recente</h3></div><div class="recent-actions"><label>Filtro<select id="recentMovementFilter"><option value="all">Tutti</option><option value="revenue">Solo incassi</option><option value="expense">Solo spese</option></select></label></div></div><div id="recentMovements" class="movement-list"></div><div class="dashboard-ledger-actions"><button class="secondary" type="button" data-dashboard-ledger="revenues">Vedi tutti gli incassi</button><button class="secondary" type="button" data-dashboard-ledger="expenses">Vedi tutte le spese</button></div></article>
+          <div class="dashboard-grid dashboard-analysis-grid">
+            <article class="card dashboard-analysis-card"><div class="card-heading"><div><p class="eyebrow">COMPOSIZIONE</p><h3>Tipologie di incasso</h3></div><span id="revenueTotalBadge" class="pill"></span></div><div id="revenueMix" class="mix-chart"></div></article>
+            <article class="card dashboard-analysis-card"><div class="card-heading"><div><p class="eyebrow">COMPOSIZIONE</p><h3>Tipologie di spesa</h3></div><span id="expenseTotalBadge" class="pill"></span></div><div id="expenseMix" class="mix-chart"></div></article>
           </div>
+          <div class="dashboard-ledger-actions"><button class="secondary" type="button" data-dashboard-ledger="revenues">Vedi tutti gli incassi</button><button class="secondary" type="button" data-dashboard-ledger="expenses">Vedi tutte le spese</button></div>
         </section>
 
         <section id="view-revenues" class="view">
@@ -131,7 +132,7 @@
         </section>
 
         <section id="view-shifts" class="view">
-          <div class="section-actions"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027, incorporata dagli allegati della D.D. QG/2926/2025.</p></div><a class="secondary source-link" href="Esecutiva_Determina_QG_2926_2025con_turni_completi.pdf" target="_blank" rel="noopener">Apri PDF ufficiale</a></div>
+          <div class="section-actions shift-section-actions"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027, incorporata dagli allegati della D.D. QG/2926/2025.</p></div><div class="shift-pdf-actions"><div><a id="shiftPdfLink" class="secondary source-link" href="Esecutiva_Determina_QG_2926_2025con_turni_completi.pdf" target="_blank" rel="noopener">Apri PDF attuale</a><label class="file-button shift-pdf-upload">Carica nuovo PDF<input id="shiftPdfUpload" type="file" accept="application/pdf,.pdf"></label></div><small id="shiftPdfStatus">PDF attuale: documento ufficiale incluso nell’app.</small></div></div>
           <div class="card shift-controls">
             <label>Tipo licenza<select id="shiftLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label>
             <label>Numero licenza<input id="shiftLicenseInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label>

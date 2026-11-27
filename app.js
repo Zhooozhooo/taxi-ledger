@@ -3,10 +3,12 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '3.1.0';
+  const APP_VERSION = '3.2.0';
+  const SHIFT_PDF_DB = 'taxiLedger.documents.v1';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+  const DEFAULT_SHIFT_PDF_URL = document.querySelector('#shiftPdfLink')?.getAttribute('href') || 'Esecutiva_Determina_QG_2926_2025con_turni_completi.pdf';
   const pad = n => String(n).padStart(2, '0');
   const localISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const today = localISO();
@@ -53,7 +55,7 @@
   let selectedSecondDriverYear = currentYear;
   let shiftCalendarMonth = currentMonth;
   let holidayCalendarMonth = currentMonth;
-  let recentMovementFilter = 'all';
+  let shiftPdfObjectUrl = '';
 
   function loadStore() {
     try {
@@ -157,6 +159,37 @@
     clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 2600);
   }
 
+  function openShiftPdfDb() {
+    return new Promise((resolve,reject)=>{
+      if(!('indexedDB' in window)) return reject(new Error('IndexedDB non disponibile'));
+      const request=indexedDB.open(SHIFT_PDF_DB,1);
+      request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('shiftPdfs'))db.createObjectStore('shiftPdfs',{keyPath:'id'});};
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error||new Error('Archivio PDF non disponibile'));
+    });
+  }
+  async function readShiftPdf() {
+    const db=await openShiftPdfDb();
+    return new Promise((resolve,reject)=>{const tx=db.transaction('shiftPdfs','readonly'),request=tx.objectStore('shiftPdfs').get(userEmail);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error);tx.oncomplete=()=>db.close();});
+  }
+  async function writeShiftPdf(file) {
+    const db=await openShiftPdfDb(),record={id:userEmail,name:file.name,size:file.size,type:'application/pdf',updatedAt:new Date().toISOString(),blob:file};
+    await new Promise((resolve,reject)=>{const tx=db.transaction('shiftPdfs','readwrite');tx.objectStore('shiftPdfs').put(record);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+    db.close(); return record;
+  }
+  async function deleteShiftPdf() {
+    try {const db=await openShiftPdfDb();await new Promise((resolve,reject)=>{const tx=db.transaction('shiftPdfs','readwrite');tx.objectStore('shiftPdfs').delete(userEmail);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();} catch {}
+  }
+  function showShiftPdf(record=null) {
+    const link=$('#shiftPdfLink'),status=$('#shiftPdfStatus'); if(!link||!status)return;
+    if(shiftPdfObjectUrl){URL.revokeObjectURL(shiftPdfObjectUrl);shiftPdfObjectUrl='';}
+    if(record?.blob){shiftPdfObjectUrl=URL.createObjectURL(record.blob);link.href=shiftPdfObjectUrl;link.textContent='Apri PDF attuale';const date=new Date(record.updatedAt).toLocaleString('it-IT',{dateStyle:'short',timeStyle:'short'});status.textContent=`PDF attuale: ${record.name} · caricato ${date}. La matrice dei turni incorporata resta invariata.`;}
+    else{link.href=DEFAULT_SHIFT_PDF_URL;link.textContent='Apri PDF attuale';status.textContent='PDF attuale: documento ufficiale incluso nell’app.';}
+  }
+  async function refreshShiftPdf() {
+    try {showShiftPdf(await readShiftPdf());} catch {showShiftPdf();$('#shiftPdfStatus').textContent+=' Il browser non consente di archiviare un PDF personalizzato.';}
+  }
+
   function showAuth() {
     $('#authView').classList.remove('hidden'); $('#appView').classList.add('hidden');
   }
@@ -167,7 +200,7 @@
     syncMandatoryHolidays();
     save();
     $('#authView').classList.add('hidden'); $('#appView').classList.remove('hidden');
-    syncIdentity(); populateReportYears(); renderAll(); checkExpenseReminders();
+    syncIdentity(); populateReportYears(); renderAll(); refreshShiftPdf(); checkExpenseReminders();
   }
   function syncIdentity() {
     const name = state.settings.name || store.accounts[userEmail].name || 'Utente';
@@ -330,18 +363,14 @@
     else if (p.status === 'closed') proj.innerHTML = `<strong>Totale definitivo ${money(p.revenue)}:</strong> ${p.revenueDays} ${p.revenueDays===1?'giorno distinto':'giorni distinti'} con incassi nel periodo concluso.`;
     else proj.innerHTML = `<strong>Periodo futuro:</strong> totale non ancora disponibile; sono previsti ${p.totalDays} giorni lavorativi al netto delle ferie.`;
     $('#revenueTotalBadge').textContent = money(d.revenueTotal);
+    $('#expenseTotalBadge').textContent = money(d.expenseTotal);
     const revenueTypes=[['Carta',d.card,0],['Contanti',d.cash,0],['Uber',d.uber,7],['FreeNow',d.freenow,10],['ITTaxi',d.ittaxi,0]].filter(x=>x[1]>0);
     const revenueTypeRows=revenueTypes.map(([label,amount,fee],index)=>{const share=d.revenueTotal?amount/d.revenueTotal*100:0;return `<div class="type-row"><i class="type-dot type-color-${index%8}"></i><span>${label}${fee?` <small>fee ${fee}%</small>`:''}</span><div class="type-track"><i class="type-fill type-color-${index%8}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
     const expenseTypes=new Map(); d.expenses.forEach(x=>expenseTypes.set(x.category||'Altro',(expenseTypes.get(x.category||'Altro')||0)+Number(x.amount)));
     const expenseRows=[...expenseTypes.entries()].sort((a,b)=>b[1]-a[1]).map(([label,amount],index)=>{const share=d.expenseTotal?amount/d.expenseTotal*100:0;return `<div class="type-row"><i class="type-dot expense-color-${index%6}"></i><span>${esc(label)}</span><div class="type-track"><i class="type-fill expense-color-${index%6}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
-    $('#revenueMix').innerHTML = `<div class="mix-section"><span class="mix-section-title">Tipologie di incasso</span>${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div><div class="mix-section shift-type-mix"><span class="mix-section-title">Tipologie di spesa</span>${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
-    let movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.allExpenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date));
-    if(recentMovementFilter!=='all') movements=movements.filter(x=>x.kind===recentMovementFilter);
-    movements=movements.slice(0,6);
-    $('#recentMovementFilter').value=recentMovementFilter;
-    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>{const status=x.kind==='expense'?expenseStatus(x.status):'';return `<div class="movement ${x.kind} ${status}"><span class="movement-icon">${x.kind==='revenue'?'↗':status==='cancelled'?'×':status==='planned'?'◷':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.kind==='revenue'?revenueMethod(x.method).label:`${expenseStatusMeta[status].label} · ${x.method==='card'?'Carta':'Contanti'}`}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'&&status==='paid'?'−':x.kind==='revenue'?'+':''}${money(x.amount)}</span></div>`;}).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati per il filtro selezionato.</div>`;
+    $('#revenueMix').innerHTML = `<div class="mix-section">${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div>`;
+    $('#expenseMix').innerHTML = `<div class="mix-section">${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
   }
-  $('#recentMovementFilter').addEventListener('change',e=>{recentMovementFilter=e.target.value;renderDashboard();});
   $$('[data-dashboard-ledger]').forEach(button=>button.addEventListener('click',()=>{
     const kind=button.dataset.dashboardLedger;
     ledgerPeriods[kind]=dashPeriod; ledgerValues[kind][dashPeriod]=dashValues[dashPeriod];
@@ -553,6 +582,16 @@
     state.settings.license=license; state.settings.licenseType=$('#shiftLicenseType').value;
     syncMandatoryHolidays(); save(); renderAll(); toast('Licenza e riposi obbligatori aggiornati.');
   });
+  $('#shiftPdfUpload').addEventListener('change',async e=>{
+    const file=e.target.files?.[0]; if(!file)return;
+    try {
+      if(file.size>20*1024*1024) throw new Error('Il PDF supera il limite di 20 MB.');
+      const signature=new TextDecoder().decode(await file.slice(0,5).arrayBuffer());
+      if(signature!=='%PDF-') throw new Error('Seleziona un file PDF valido.');
+      const record=await writeShiftPdf(file);showShiftPdf(record);toast('Nuovo PDF dei turni salvato su questo dispositivo.');
+    } catch(error) {toast(error?.message||'Impossibile salvare il PDF selezionato.');}
+    e.target.value='';
+  });
 
   function renderHolidays() {
     const rows = [...state.holidays].sort((a,b)=>a.start.localeCompare(b.start));
@@ -723,9 +762,9 @@
     catch { toast('Il file non è un backup Taxi Ledger valido.'); }
     e.target.value='';
   });
-  $('#deleteProfile').addEventListener('click',()=>{
+  $('#deleteProfile').addEventListener('click',async()=>{
     if(!confirm(`Eliminare definitivamente il profilo ${userEmail} e tutti i suoi dati?`)) return;
-    delete store.accounts[userEmail]; persistStore(); localStorage.removeItem(SESSION_KEY); userEmail=''; state=null; showAuth(); toast('Profilo eliminato.');
+    await deleteShiftPdf(); delete store.accounts[userEmail]; persistStore(); localStorage.removeItem(SESSION_KEY); userEmail=''; state=null; showAuth(); toast('Profilo eliminato.');
   });
   $('#loadDemo').addEventListener('click',()=>{
     if((state.revenues.length||state.expenses.length) && !confirm('Aggiungere i dati dimostrativi a quelli esistenti?')) return;
@@ -737,7 +776,7 @@
 
   const fieldTemplates={
     revenue:item=>{const suggested=item.id?(item.shift||''):suggestedRevenueShift(item.date||today),method=item.method||'card'; return `<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo lordo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Tipologia incasso<select name="method">${Object.entries(revenueMethods).map(([key,meta])=>`<option value="${key}" ${method===key?'selected':''}>${meta.label}${meta.fee?` - fee ${meta.fee}%`:''}</option>`).join('')}</select><small id="revenueMethodHint" class="field-hint"></small></label><label>Turno<select name="shift" required><option value="">Seleziona turno</option>${revenueShiftOptions.map(x=>`<option value="${esc(x)}" ${suggested===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small id="revenueShiftHint" class="field-hint"></small></label><label class="full">Note<textarea name="note" maxlength="250" placeholder="Dettagli facoltativi sull'incasso">${esc(item.note||'')}</textarea></label>`;},
-    expense:item=>{const date=item.date||today,status=item.id?expenseStatus(item.status):(date>today?'planned':'paid'),categories=item.category&&!expenseCategories.includes(item.category)?[item.category,...expenseCategories]:expenseCategories;return `<label>Data / scadenza<input name="date" type="date" required value="${date}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${categories.map(x=>`<option ${item.category===x?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="planned" ${status==='planned'?'selected':''}>Pianificata</option><option value="paid" ${status==='paid'?'selected':''}>Pagata</option><option value="cancelled" ${status==='cancelled'?'selected':''}>Annullata</option></select><small id="expenseStatusHint" class="field-hint">${item.id?'Stato salvato: modificabile.':date>today?'Data futura: proposta Pianificata.':'Data odierna o passata: proposta Pagata.'} Solo le spese pagate riducono il margine.</small></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`;},
+    expense:item=>{const date=item.date||today,status=item.id?expenseStatus(item.status):(date>today?'planned':'paid'),categories=item.category&&!expenseCategories.includes(item.category)?[item.category,...expenseCategories]:expenseCategories;return `<label>Data / scadenza<input name="date" type="date" required value="${date}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${categories.map(x=>`<option ${item.category===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small class="field-hint">Seleziona la tipologia di costo per il riepilogo e il Consuntivo.</small></label><label>Stato<select name="status"><option value="planned" ${status==='planned'?'selected':''}>Pianificata</option><option value="paid" ${status==='paid'?'selected':''}>Pagata</option><option value="cancelled" ${status==='cancelled'?'selected':''}>Annullata</option></select><small id="expenseStatusHint" class="field-hint">${item.id?'Stato salvato: modificabile.':date>today?'Data futura: proposta Pianificata.':'Data odierna o passata: proposta Pagata.'} Solo le spese pagate riducono il margine.</small></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`;},
     holiday:item=>`<label>Dal<input name="start" type="date" required value="${item.start||today}"></label><label>Al<input name="end" type="date" required value="${item.end||today}"></label><label class="full">Nome periodo<input name="name" required maxlength="80" value="${esc(item.name||'Ferie')}" placeholder="Es. Ferie estive"></label><label class="full">Nota<input name="note" maxlength="120" value="${esc(item.note||'')}" placeholder="Facoltativa"></label>`
   };
   function openEntry(type,id='') {
