@@ -1,4 +1,4 @@
-# Taxi Ledger 2.7
+# Taxi Ledger 2.8
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -83,6 +83,18 @@ Le configurazioni sono archiviate separatamente per anno e incluse nei backup JS
 - Composizione del Cruscotto con split completo per tipologia di incasso e categoria di spesa;
 - filtro `Tutti / Solo incassi / Solo spese` negli Ultimi movimenti;
 - mantenuti i selettori giornalieri, con default sulla data odierna, nelle sezioni Incassi e Spese.
+
+## Spese pianificate e promemoria 2.8
+
+- flusso spesa a tre stati: **Pianificata → Pagata → Annullata**;
+- azione rapida **Segna pagata**, che fa entrare la spesa nel margine e nel Consuntivo;
+- le spese pianificate e annullate non riducono il margine effettivo;
+- indicatori separati per spese sostenute e spese pianificate nel Cruscotto e nella pagina Spese;
+- nuove categorie **F24 Inps**, **F24 Irpef** e **F24 Inail**;
+- promemoria automatici 5 giorni e 1 giorno prima della data di una spesa pianificata;
+- promemoria visibili nell'app e, dopo autorizzazione, come notifiche di sistema.
+
+L'app verifica sempre le scadenze all'apertura, quando torna in primo piano e ogni ora mentre resta attiva. Essendo una PWA statica senza server push, il sistema operativo non può garantire l'avviso se l'app è completamente chiusa. Su iPhone le notifiche web richiedono l'installazione sulla schermata Home e l'autorizzazione nelle Impostazioni.
 
 ## Pubblicazione su GitHub Pages
 

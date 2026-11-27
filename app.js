@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.7.0';
+  const APP_VERSION = '2.8.0';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -19,6 +19,11 @@
     uber:{label:'Uber',fee:7,cardLike:true}, freenow:{label:'FreeNow',fee:10,cardLike:true}, ittaxi:{label:'ITTaxi',fee:0,cardLike:true}
   };
   const revenueMethod = method => revenueMethods[method] || revenueMethods.cash;
+  const expenseCategories = ['Carburante','Canone','Manutenzione','Gomme','Assicurazione','Lavaggio','Pedaggi','Commercialista','Revisione','F24 Inps','F24 Irpef','F24 Inail','Altro'];
+  const expenseStatusMeta = {
+    paid:{label:'Pagata'}, planned:{label:'Pianificata'}, cancelled:{label:'Annullata'}
+  };
+  const expenseStatus = status => expenseStatusMeta[status] ? status : (status === 'planned' ? 'planned' : 'paid');
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const money = value => new Intl.NumberFormat('it-IT', {style:'currency', currency:'EUR'}).format(Number(value) || 0);
@@ -52,8 +57,8 @@
   function defaultData(name = '') {
     return {
       version: APP_VERSION,
-      revenues: [], expenses: [], holidays: [],
-      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, secondDriverCashAmount:0, secondDriverAssignments:{}, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true}
+      revenues: [], expenses: [], holidays: [], reminderLog:{},
+      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, secondDriverCashAmount:0, secondDriverAssignments:{}, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true, expenseReminders:true}
     };
   }
   function normalizeRevenue(item) {
@@ -64,6 +69,9 @@
     if(revenueShiftOptions.includes(legacy)) return {...r,shift:legacy,note:''};
     return {...r,shift:'',note:legacy};
   }
+  function normalizeExpense(item) {
+    return {...item,status:expenseStatus(item?.status)};
+  }
   function normalizeData(data, name = '') {
     const base = defaultData(name);
     const incomingSettings=data?.settings||{};
@@ -71,8 +79,9 @@
     return {
       ...base, ...data,
       revenues: Array.isArray(data?.revenues) ? data.revenues.map(normalizeRevenue) : [],
-      expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+      expenses: Array.isArray(data?.expenses) ? data.expenses.map(normalizeExpense) : [],
       holidays: Array.isArray(data?.holidays) ? data.holidays : [],
+      reminderLog: data?.reminderLog && typeof data.reminderLog === 'object' && !Array.isArray(data.reminderLog) ? data.reminderLog : {},
       settings: {...base.settings, ...incomingSettings, secondDriverAssignments:assignments, name: incomingSettings.name || name || base.settings.name}
     };
   }
@@ -120,7 +129,7 @@
     syncMandatoryHolidays();
     save();
     $('#authView').classList.add('hidden'); $('#appView').classList.remove('hidden');
-    syncIdentity(); populateReportYears(); renderAll();
+    syncIdentity(); populateReportYears(); renderAll(); checkExpenseReminders();
   }
   function syncIdentity() {
     const name = state.settings.name || store.accounts[userEmail].name || 'Utente';
@@ -179,7 +188,10 @@
   }
   function totals(type, value) {
     const revenues = state.revenues.filter(r => inPeriod(r.date, type, value));
-    const expenses = state.expenses.filter(r => r.status !== 'planned' && inPeriod(r.date, type, value));
+    const allExpenses = state.expenses.filter(r => inPeriod(r.date, type, value));
+    const expenses = allExpenses.filter(r => expenseStatus(r.status) === 'paid');
+    const plannedExpenses = allExpenses.filter(r => expenseStatus(r.status) === 'planned');
+    const cancelledExpenses = allExpenses.filter(r => expenseStatus(r.status) === 'cancelled');
     const cash = revenues.filter(r => r.method === 'cash').reduce((s,r) => s + Number(r.amount), 0);
     const card = revenues.filter(r => r.method === 'card').reduce((s,r) => s + Number(r.amount), 0);
     const uber = revenues.filter(r => r.method === 'uber').reduce((s,r) => s + Number(r.amount), 0);
@@ -188,10 +200,12 @@
     const cardLike = card + uber + freenow + ittaxi;
     const platformFees = uber*.07 + freenow*.10;
     const expenseTotal = expenses.reduce((s,r) => s + Number(r.amount), 0);
+    const plannedTotal = plannedExpenses.reduce((s,r) => s + Number(r.amount), 0);
+    const cancelledTotal = cancelledExpenses.reduce((s,r) => s + Number(r.amount), 0);
     const revenueTotal = cash + cardLike;
     const netRevenue = revenueTotal-platformFees;
     const margin = netRevenue - expenseTotal;
-    return {revenues, expenses, cash, card, uber, freenow, ittaxi, cardLike, platformFees, revenueTotal, netRevenue, expenseTotal, margin};
+    return {revenues, allExpenses, expenses, plannedExpenses, cancelledExpenses, cash, card, uber, freenow, ittaxi, cardLike, platformFees, revenueTotal, netRevenue, expenseTotal, plannedTotal, cancelledTotal, margin};
   }
   function holidaySet(start, end) {
     const set = new Set();
@@ -255,10 +269,13 @@
     const secondDriver = dashPeriod==='day' ? {count:0,income:0} : secondDriverForReport(dashPeriod==='month'?{type:'month',value}:{type:'year',value:String(value)});
     const cardShare = d.revenueTotal ? d.cardLike/d.revenueTotal*100 : 0, cashShare = d.revenueTotal ? d.cash/d.revenueTotal*100 : 0;
     const marginShare = d.revenueTotal ? d.margin/d.revenueTotal*100 : 0;
+    const overduePlanned = d.plannedExpenses.filter(x=>x.date<today).length;
     let cards = kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
     cards += kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
-    cards += kpi('◇','MARGINE',money(d.margin),`${pct(marginShare)} dopo costi e fee`);
+    cards += kpi('↘','SPESE SOSTENUTE',money(d.expenseTotal),`${d.expenses.length} ${d.expenses.length===1?'spesa pagata':'spese pagate'}`);
+    cards += kpi('◷','SPESE PIANIFICATE',money(d.plannedTotal),d.plannedExpenses.length?`${d.plannedExpenses.length} ${d.plannedExpenses.length===1?'scadenza':'scadenze'}${overduePlanned?` · ${overduePlanned} scadute`:''}`:'Nessuna spesa pianificata');
+    cards += kpi('◇','MARGINE EFFETTIVO',money(d.margin),`${pct(marginShare)} · incassi netti − spese pagate`);
     if (dashPeriod!=='day') cards += kpi('♙','INTROITO SECONDA GUIDA',money(secondDriver.income),secondDriver.count?`${secondDriver.count} ${secondDriver.count===1?'mese':'mesi'} · imponibile ${money(secondDriver.taxableIncome)} · contanti ${money(secondDriver.cashIncome)}`:(state.settings.secondDriver?'Nessun mese assegnato':'Seconda guida non attiva'));
     if (p) cards += kpi('⌁','PROIEZIONE TOTALE INCASSI',money(p.revenue),p.status==='live'?`Media ${money(p.averageRevenue)} × ${p.remaining} ${p.remaining===1?'giorno restante':'giorni restanti'}`:p.status==='closed'?`${p.revenueDays} ${p.revenueDays===1?'giorno':'giorni'} di incasso nel periodo`:'In attesa dei primi incassi');
     $('#dashboardKpis').innerHTML = cards;
@@ -274,17 +291,61 @@
     const expenseTypes=new Map(); d.expenses.forEach(x=>expenseTypes.set(x.category||'Altro',(expenseTypes.get(x.category||'Altro')||0)+Number(x.amount)));
     const expenseRows=[...expenseTypes.entries()].sort((a,b)=>b[1]-a[1]).map(([label,amount],index)=>{const share=d.expenseTotal?amount/d.expenseTotal*100:0;return `<div class="type-row"><i class="type-dot expense-color-${index%6}"></i><span>${esc(label)}</span><div class="type-track"><i class="type-fill expense-color-${index%6}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
     $('#revenueMix').innerHTML = `<div class="mix-section"><span class="mix-section-title">Tipologie di incasso</span>${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div><div class="mix-section shift-type-mix"><span class="mix-section-title">Tipologie di spesa</span>${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
-    let movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.expenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date));
+    let movements = [...d.revenues.map(x=>({...x,kind:'revenue'})), ...d.allExpenses.map(x=>({...x,kind:'expense'}))].sort((a,b)=>b.date.localeCompare(a.date));
     if(recentMovementFilter!=='all') movements=movements.filter(x=>x.kind===recentMovementFilter);
     movements=movements.slice(0,6);
     $('#recentMovementFilter').value=recentMovementFilter;
-    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>`<div class="movement ${x.kind}"><span class="movement-icon">${x.kind==='revenue'?'↗':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.kind==='revenue'?revenueMethod(x.method).label:(x.method==='card'?'Carta':'Contanti')}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'?'−':'+'}${money(x.amount)}</span></div>`).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati per il filtro selezionato.</div>`;
+    $('#recentMovements').innerHTML = movements.length ? movements.map(x=>{const status=x.kind==='expense'?expenseStatus(x.status):'';return `<div class="movement ${x.kind} ${status}"><span class="movement-icon">${x.kind==='revenue'?'↗':status==='cancelled'?'×':status==='planned'?'◷':'↘'}</span><div class="movement-main"><strong>${esc(x.kind==='revenue'?(x.shift||'Incasso'):(x.note||x.category||'Spesa'))}</strong><span>${dateLabel(x.date)} · ${x.kind==='revenue'?revenueMethod(x.method).label:`${expenseStatusMeta[status].label} · ${x.method==='card'?'Carta':'Contanti'}`}${x.kind==='revenue'&&x.note?` · ${esc(x.note)}`:''}</span></div><span class="movement-amount">${x.kind==='expense'&&status==='paid'?'−':x.kind==='revenue'?'+':''}${money(x.amount)}</span></div>`;}).join('') : `<div class="empty"><strong>Nessun movimento</strong>Non ci sono dati per il filtro selezionato.</div>`;
   }
   $('#recentMovementFilter').addEventListener('change',e=>{recentMovementFilter=e.target.value;renderDashboard();});
 
   function summaryCards(total, card, cash, noun='incassi') {
     const cp = total ? card/total*100 : 0, hp = total ? cash/total*100 : 0;
     return `<div class="mini-card"><span>Totale ${noun}</span><strong>${money(total)}</strong><small>${noun==='spese'?'sostenute nel periodo':'complessivi'}</small></div><div class="mini-card"><span>Carta</span><strong>${money(card)}</strong><small>${pct(cp)} del totale</small></div><div class="mini-card"><span>Contanti</span><strong>${money(cash)}</strong><small>${pct(hp)} del totale</small></div>`;
+  }
+  function daysUntil(dateISO) {
+    return Math.round((parseDate(dateISO)-parseDate(localISO()))/86400000);
+  }
+  function expenseReminderCandidates() {
+    if(!state?.settings?.expenseReminders) return [];
+    return state.expenses.filter(x=>expenseStatus(x.status)==='planned' && [5,1].includes(daysUntil(x.date))).sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  function reminderMarkup(items) {
+    if(!items.length) return '';
+    return `<div class="reminder-content"><span class="reminder-icon">◷</span><div><strong>${items.length===1?'Promemoria spesa pianificata':'Promemoria spese pianificate'}</strong>${items.map(x=>{const days=daysUntil(x.date);return `<span>${esc(x.category||'Spesa')} · ${money(x.amount)} · ${days===1?'domani':'tra 5 giorni'} (${dateLabel(x.date)})</span>`;}).join('')}</div></div><button class="text-btn" type="button" data-view-link="expenses">Apri spese</button>`;
+  }
+  function renderExpenseReminders() {
+    const items=expenseReminderCandidates(), html=reminderMarkup(items);
+    ['expenseReminderBanner','globalReminderBanner'].forEach(id=>{const el=$('#'+id); if(!el)return; el.innerHTML=html; el.classList.toggle('hidden',!items.length);});
+  }
+  async function showExpenseNotification(item) {
+    const days=daysUntil(item.date), title=`Spesa pianificata ${days===1?'domani':'tra 5 giorni'}`;
+    const options={body:`${item.category||'Spesa'} · ${money(item.amount)} · ${dateLabel(item.date)}`,tag:`taxi-ledger-expense-${item.id}-${days}`,icon:'icon-192.png',badge:'icon-192.png',data:{view:'expenses'}};
+    try {
+      if('serviceWorker' in navigator && location.protocol.startsWith('http')) {const registration=await navigator.serviceWorker.ready; await registration.showNotification(title,options);}
+      else if('Notification' in window) new Notification(title,options);
+      return true;
+    } catch { return false; }
+  }
+  async function checkExpenseReminders({announce=true}={}) {
+    if(!state?.settings?.expenseReminders) {renderExpenseReminders();return;}
+    const items=expenseReminderCandidates(); renderExpenseReminders();
+    if(items.length&&announce) toast(items.length===1?`Promemoria: ${items[0].category} ${money(items[0].amount)} ${daysUntil(items[0].date)===1?'domani':'tra 5 giorni'}.`:`Hai ${items.length} spese pianificate in scadenza.`);
+    if(!items.length||!('Notification' in window)||Notification.permission!=='granted') return;
+    let changed=false;
+    for(const item of items) {
+      const days=daysUntil(item.date), key=`${item.id}:${item.date}:${days}`;
+      if(state.reminderLog[key]===localISO()) continue;
+      if(await showExpenseNotification(item)){state.reminderLog[key]=localISO();changed=true;}
+    }
+    if(changed) save();
+  }
+  function updateNotificationStatus() {
+    const el=$('#notificationStatus'); if(!el)return;
+    if(!('Notification' in window)) el.textContent='Le notifiche di sistema non sono supportate da questo browser; i promemoria restano visibili nell’app.';
+    else if(Notification.permission==='granted') el.textContent='Notifiche di sistema attive su questo dispositivo.';
+    else if(Notification.permission==='denied') el.textContent='Notifiche bloccate dal browser. Riabilitale dalle impostazioni del sito o dell’iPhone.';
+    else el.textContent='Autorizza le notifiche per ricevere il promemoria anche come avviso di sistema mentre l’app è attiva.';
   }
   function renderRevenues() {
     const dateFilter=$('#revenueDayFilter'); if(!dateFilter.value)dateFilter.value=today;
@@ -300,13 +361,21 @@
     const dateFilter=$('#expenseDayFilter'); if(!dateFilter.value)dateFilter.value=today;
     const q = $('#expenseSearch').value.trim().toLowerCase(), day = dateFilter.value;
     const rows = state.expenses.filter(r => r.date===day && (!q || `${r.note} ${r.category} ${r.amount}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
-    const card = rows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = rows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
-    $('#expenseSummary').innerHTML = summaryCards(card+cash,card,cash,'spese');
-    $('#expenseTable').innerHTML = rows.map(r=>`<tr><td><button class="edit-btn" data-edit="expense" data-id="${r.id}" aria-label="Modifica spesa">✎</button></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.category)}</strong><br><small class="muted">${esc(r.note||'')}</small></td><td><span class="state ${r.status}">${r.status==='planned'?'Pianificata':'Pagata'}</span></td><td><span class="method ${r.method}">${r.method==='card'?'Carta':'Contanti'}</span></td><td class="num"><strong>${money(r.amount)}</strong></td></tr>`).join('');
+    const paidRows=rows.filter(r=>expenseStatus(r.status)==='paid'), plannedRows=rows.filter(r=>expenseStatus(r.status)==='planned'), cancelledRows=rows.filter(r=>expenseStatus(r.status)==='cancelled');
+    const paid=paidRows.reduce((s,r)=>s+Number(r.amount),0), planned=plannedRows.reduce((s,r)=>s+Number(r.amount),0);
+    const card = paidRows.filter(r=>r.method==='card').reduce((s,r)=>s+Number(r.amount),0), cash = paidRows.filter(r=>r.method==='cash').reduce((s,r)=>s+Number(r.amount),0);
+    $('#expenseSummary').innerHTML = `<div class="mini-card featured"><span>Spese sostenute</span><strong>${money(paid)}</strong><small>incluse nel margine</small></div><div class="mini-card planned-card"><span>Spese pianificate</span><strong>${money(planned)}</strong><small>${plannedRows.length} ${plannedRows.length===1?'scadenza':'scadenze'} · escluse dal margine</small></div><div class="mini-card"><span>Carta / contanti pagati</span><strong>${money(card)} / ${money(cash)}</strong><small>${pct(paid?card/paid*100:0)} / ${pct(paid?cash/paid*100:0)}</small></div><div class="mini-card cancelled-card"><span>Annullate</span><strong>${cancelledRows.length}</strong><small>non conteggiate</small></div>`;
+    $('#expenseTable').innerHTML = rows.map(r=>{const status=expenseStatus(r.status),meta=expenseStatusMeta[status];return `<tr class="expense-row ${status}"><td><div class="expense-actions"><button class="edit-btn" data-edit="expense" data-id="${r.id}" aria-label="Modifica spesa">✎</button>${status==='planned'?`<button class="pay-btn" data-expense-status="paid" data-id="${r.id}" type="button">Segna pagata</button>`:''}</div></td><td>${dateLabel(r.date)}</td><td><strong>${esc(r.category)}</strong><br><small class="muted">${esc(r.note||'')}</small></td><td><span class="state ${status}">${meta.label}</span></td><td><span class="method ${r.method}">${r.method==='card'?'Carta':'Contanti'}</span></td><td class="num"><strong>${money(r.amount)}</strong></td></tr>`;}).join('');
     $('#expenseEmpty').classList.toggle('hidden', rows.length>0); $('#expenseEmpty').innerHTML=`<strong>Nessuna spesa il ${dateLabel(day)}</strong>Seleziona un altro giorno o aggiungi il primo costo.`;
+    renderExpenseReminders();
   }
   ['revenueSearch','revenueDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderRevenues));
   ['expenseSearch','expenseDayFilter'].forEach(id=>$('#'+id).addEventListener('input',renderExpenses));
+  $('#expenseTable').addEventListener('click',e=>{
+    const button=e.target.closest('[data-expense-status]'); if(!button)return;
+    const item=state.expenses.find(x=>x.id===button.dataset.id); if(!item)return;
+    item.status=button.dataset.expenseStatus; save(); renderAll(); toast('Spesa segnata come pagata e inclusa nel margine.');
+  });
 
   function shiftDateLabel(start,end) {
     const a=parseDate(start), b=parseDate(end);
@@ -530,14 +599,21 @@
     $('#settingsLicense').value=s.license||''; $('#settingsLicenseType').value=s.licenseType||'ordinary'; $('#settingsShiftMode').value=s.shiftMode||'official';
     $('#settingsSecondDriver').checked=!!s.secondDriver; $('#settingsSecondDriverAmount').value=s.secondDriverAmount||0; $('#settingsSecondDriverCashAmount').value=s.secondDriverCashAmount||0;
     $('#settingsStartYear').value=s.startYear||currentYear; $('#settingsTaxRateFirst').value=s.taxRateFirst??s.taxRate??5; $('#settingsTaxRateAfter').value=s.taxRateAfter??10; $('#settingsProfitability').value=s.profitability; $('#settingsInpsRate').value=s.inpsRate; $('#settingsInpsFixed').value=s.inpsFixed; $('#settingsCardOnly').checked=!!s.cardOnly;
+    $('#settingsExpenseReminders').checked=s.expenseReminders!==false; updateNotificationStatus();
     populateSecondDriverYears(); renderSecondDriverAssignments();
   }
   $('#saveSettings').addEventListener('click',()=>{
     const name=$('#settingsName').value.trim(); if(!name) return toast('Inserisci un nome visualizzato.');
     const license=Number.parseInt($('#settingsLicense').value,10)||'';
-    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,secondDriverCashAmount:Number($('#settingsSecondDriverCashAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked};
+    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,secondDriverCashAmount:Number($('#settingsSecondDriverCashAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked,expenseReminders:$('#settingsExpenseReminders').checked};
     syncMandatoryHolidays();
-    save(); syncIdentity(); renderAll(); toast('Impostazioni aggiornate.');
+    save(); syncIdentity(); renderAll(); checkExpenseReminders({announce:false}); toast('Impostazioni aggiornate.');
+  });
+  $('#enableExpenseNotifications').addEventListener('click',async()=>{
+    if(!('Notification' in window)){updateNotificationStatus();return toast('Notifiche di sistema non supportate da questo browser.');}
+    const permission=await Notification.requestPermission(); updateNotificationStatus();
+    if(permission==='granted'){state.settings.expenseReminders=true;$('#settingsExpenseReminders').checked=true;save();await checkExpenseReminders({announce:false});toast('Notifiche per le spese pianificate attivate.');}
+    else toast('Permesso notifiche non concesso. I promemoria restano visibili nell’app.');
   });
   $('#exportData').addEventListener('click',()=>{
     const blob=new Blob([JSON.stringify({app:'Taxi Ledger',version:APP_VERSION,exportedAt:new Date().toISOString(),data:state},null,2)],{type:'application/json'});
@@ -563,7 +639,7 @@
 
   const fieldTemplates={
     revenue:item=>{const suggested=item.id?(item.shift||''):suggestedRevenueShift(item.date||today),method=item.method||'card'; return `<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo lordo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Tipologia incasso<select name="method">${Object.entries(revenueMethods).map(([key,meta])=>`<option value="${key}" ${method===key?'selected':''}>${meta.label}${meta.fee?` - fee ${meta.fee}%`:''}</option>`).join('')}</select><small id="revenueMethodHint" class="field-hint"></small></label><label>Turno<select name="shift" required><option value="">Seleziona turno</option>${revenueShiftOptions.map(x=>`<option value="${esc(x)}" ${suggested===x?'selected':''}>${esc(x)}</option>`).join('')}</select><small id="revenueShiftHint" class="field-hint"></small></label><label class="full">Note<textarea name="note" maxlength="250" placeholder="Dettagli facoltativi sull'incasso">${esc(item.note||'')}</textarea></label>`;},
-    expense:item=>`<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${['Carburante','Canone','Manutenzione','Gomme','Assicurazione','Lavaggio','Pedaggi','Altro'].map(x=>`<option ${item.category===x?'selected':''}>${x}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="paid" ${item.status!=='planned'?'selected':''}>Pagata</option><option value="planned" ${item.status==='planned'?'selected':''}>Pianificata</option></select></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`,
+    expense:item=>{const status=expenseStatus(item.status),categories=item.category&&!expenseCategories.includes(item.category)?[item.category,...expenseCategories]:expenseCategories;return `<label>Data / scadenza<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${categories.map(x=>`<option ${item.category===x?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="planned" ${status==='planned'?'selected':''}>Pianificata</option><option value="paid" ${status==='paid'?'selected':''}>Pagata</option><option value="cancelled" ${status==='cancelled'?'selected':''}>Annullata</option></select><small class="field-hint">Solo le spese pagate riducono il margine.</small></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`;},
     holiday:item=>`<label>Dal<input name="start" type="date" required value="${item.start||today}"></label><label>Al<input name="end" type="date" required value="${item.end||today}"></label><label class="full">Nome periodo<input name="name" required maxlength="80" value="${esc(item.name||'Ferie')}" placeholder="Es. Ferie estive"></label><label class="full">Nota<input name="note" maxlength="120" value="${esc(item.note||'')}" placeholder="Facoltativa"></label>`
   };
   function openEntry(type,id='') {
@@ -591,7 +667,7 @@
   }
   $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickExpense').addEventListener('click',()=>openEntry('expense')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
   $('#closeModal').addEventListener('click',()=>$('#entryDialog').close()); $('#cancelModal').addEventListener('click',()=>$('#entryDialog').close());
-  document.addEventListener('click',e=>{const btn=e.target.closest('[data-edit]'); if(btn) openEntry(btn.dataset.edit,btn.dataset.id);});
+  document.addEventListener('click',e=>{const btn=e.target.closest('[data-edit]'); if(btn) openEntry(btn.dataset.edit,btn.dataset.id); const link=e.target.closest('[data-view-link]'); if(link) navigate(link.dataset.viewLink);});
   $('#entryForm').addEventListener('submit',e=>{
     e.preventDefault(); const type=$('#entryType').value,id=$('#entryId').value; const fd=Object.fromEntries(new FormData(e.currentTarget));
     if(type==='holiday'&&fd.end<fd.start) return toast('La data finale deve essere successiva a quella iniziale.');
@@ -600,7 +676,7 @@
     const index=list.findIndex(x=>x.id===id); if(index>=0)list[index]=obj; else list.push(obj);
     if(type==='revenue')$('#revenueDayFilter').value=fd.date;
     if(type==='expense')$('#expenseDayFilter').value=fd.date;
-    save(); populateReportYears(); renderAll(); $('#entryDialog').close(); toast(id?'Modifica salvata.':'Elemento aggiunto.');
+    save(); populateReportYears(); renderAll(); checkExpenseReminders({announce:false}); $('#entryDialog').close(); toast(id?'Modifica salvata.':'Elemento aggiunto.');
   });
   $('#deleteEntry').addEventListener('click',()=>{
     const type=$('#entryType').value,id=$('#entryId').value; if(!confirm('Eliminare definitivamente questo elemento?'))return;
@@ -610,5 +686,7 @@
   function renderAll() { setupDashboardPicker(); renderDashboard(); renderRevenues(); renderExpenses(); renderHolidays(); renderShifts(); renderReport(); settingsToForm(); }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state)checkExpenseReminders({announce:false});});
+  setInterval(()=>{if(state)checkExpenseReminders({announce:false});},60*60*1000);
   if (userEmail && store.accounts[userEmail]) enterApp(); else showAuth();
 })();
