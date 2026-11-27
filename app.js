@@ -3,7 +3,8 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.3.0';
+  const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const pad = n => String(n).padStart(2, '0');
@@ -41,7 +42,7 @@
     return {
       version: APP_VERSION,
       revenues: [], expenses: [], holidays: [],
-      settings: {name, business:'', currency:'EUR', startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true}
+      settings: {name, business:'', currency:'EUR', license:'', licenseType:'ordinary', shiftMode:'official', secondDriver:false, secondDriverAmount:0, startYear:Number(currentYear), taxRateFirst:5, taxRateAfter:10, profitability:67, inpsRate:24, inpsFixed:0, cardOnly:true}
     };
   }
   function normalizeData(data, name = '') {
@@ -62,6 +63,22 @@
     persistStore();
     $('#syncBadge').textContent = '● Salvato sul dispositivo';
   }
+  function syncMandatoryHolidays() {
+    if (!state || !shiftRules) return;
+    const personal = state.holidays.filter(h => h.source !== 'QG/2926/2025');
+    const automatic = shiftRules.mandatoryRestPeriods(state.settings.license, state.settings.licenseType).map(h => ({
+      id:`system-${h.key}`, ...h, source:'QG/2926/2025', locked:true
+    }));
+    state.holidays = [...personal, ...automatic];
+  }
+  function shiftForDate(dateISO) {
+    if (!shiftRules || !state) return null;
+    return shiftRules.getShift(dateISO, state.settings.license, state.settings.shiftMode);
+  }
+  function suggestedRevenueNote(dateISO) {
+    const shift=shiftForDate(dateISO);
+    return shift ? `Turno ${shift.broad.toLowerCase()}` : '';
+  }
   async function hashPassword(password, salt) {
     const bytes = new TextEncoder().encode(`${salt}:${password}`);
     const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -79,6 +96,8 @@
     const account = store.accounts[userEmail];
     if (!account) { localStorage.removeItem(SESSION_KEY); showAuth(); return; }
     state = normalizeData(account.data, account.name);
+    syncMandatoryHolidays();
+    save();
     $('#authView').classList.add('hidden'); $('#appView').classList.remove('hidden');
     syncIdentity(); populateReportYears(); renderAll();
   }
@@ -117,7 +136,7 @@
 
   const viewInfo = {
     dashboard:['PANORAMICA','Cruscotto'], revenues:['MOVIMENTI','Incassi'], expenses:['COSTI','Spese'],
-    holidays:['CALENDARIO','Ferie'], report:['PIANIFICAZIONE','Consuntivo'], settings:['PROFILO','Impostazioni']
+    holidays:['CALENDARIO','Ferie'], shifts:['PROGRAMMAZIONE','Turni'], report:['PIANIFICAZIONE','Consuntivo'], settings:['PROFILO','Impostazioni']
   };
   function navigate(view) {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
@@ -125,9 +144,12 @@
     $('#pageKicker').textContent = viewInfo[view][0]; $('#pageTitle').textContent = viewInfo[view][1];
     window.scrollTo({top:0, behavior:'smooth'});
     if (view === 'report') renderReport();
+    if (view === 'shifts') renderShifts();
+    $('.sidebar').classList.remove('open');
   }
   $$('.nav-item[data-view]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
   $$('[data-view-link]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.viewLink)));
+  $('#menuBtn').addEventListener('click',()=>$('.sidebar').classList.toggle('open'));
 
   function inPeriod(date, type, value) {
     if (type === 'day') return date === value;
@@ -246,13 +268,60 @@
   ['revenueSearch','revenueMonthFilter'].forEach(id=>$('#'+id).addEventListener('input',renderRevenues));
   ['expenseSearch','expenseMonthFilter'].forEach(id=>$('#'+id).addEventListener('input',renderExpenses));
 
+  function shiftDateLabel(start,end) {
+    const a=parseDate(start), b=parseDate(end);
+    return `${a.toLocaleDateString('it-IT',{day:'2-digit',month:'short'})} - ${b.toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'})}`;
+  }
+  function renderShifts() {
+    const s=state.settings;
+    $('.shift-table-card').classList.toggle('bypass',s.shiftMode!=='official');
+    $('#shiftLicenseInput').value=s.license||'';
+    $('#shiftLicenseType').value=s.licenseType||'ordinary';
+    const dateInput=$('#shiftDate');
+    if(!dateInput.value) dateInput.value=today<shiftRules.SCHEDULE_START?shiftRules.SCHEDULE_START:today>shiftRules.SCHEDULE_END?shiftRules.SCHEDULE_END:today;
+    const selected=dateInput.value;
+    const shift=shiftRules.getShift(selected,s.license,s.shiftMode);
+    if(!s.license) {
+      $('#shiftCurrent').innerHTML='<div class="empty card"><strong>Inserisci il numero di licenza</strong>Salvalo qui o nelle Impostazioni per calcolare gruppo, turno e riposi obbligatori.</div>';
+      $('#shiftGroupBadge').textContent='Licenza non impostata'; $('#shiftSchedule').innerHTML=''; return;
+    }
+    if(!shift) {
+      $('#shiftCurrent').innerHTML=`<div class="empty card"><strong>Nessun turno calcolabile</strong>La data deve essere compresa tra ${dateLabel(shiftRules.SCHEDULE_START)} e ${dateLabel(shiftRules.SCHEDULE_END)}.</div>`;
+      $('#shiftGroupBadge').textContent=`Licenza ${s.license}`; $('#shiftSchedule').innerHTML=''; return;
+    }
+    const turnText=shift.turn?`T${shift.turn} · ${shift.name}`:shift.name;
+    $('#shiftCurrent').innerHTML=`<article class="shift-hero-card"><div><p class="eyebrow">TURNO DEL ${dateLabel(selected).toUpperCase()}</p><h3>${esc(turnText)}</h3><p>${shift.mode==='official'?`Gruppo ${pad(shift.group)} · settimana ${dateLabel(shift.weekStart)} - ${dateLabel(shift.weekEnd)}`:'Bypass della turnazione ufficiale attivo'}</p></div><aside><span>Fascia per le note</span><strong>${esc(shift.broad)}</strong><small>${esc(shift.hours)}</small></aside></article>`;
+    $('#shiftGroupBadge').textContent=`Licenza ${s.license} · Gruppo ${pad(shift.group)}`;
+    if(s.shiftMode!=='official') {
+      $('#shiftSchedule').innerHTML=`<tr><td colspan="5"><div class="empty"><strong>Turnazione bypassata</strong>Le note dei nuovi incassi saranno proposte come “Turno ${shift.broad.toLowerCase()}”.</div></td></tr>`; return;
+    }
+    const selectedWeek=shiftRules.saturdayFor(selected), selectedOffset=Math.round((parseDate(selected)-parseDate(selectedWeek))/86400000);
+    const rows=[];
+    for(let i=-1;i<=5;i++) {
+      const weekStart=shiftRules.addDays(selectedWeek,i*7), rowDate=shiftRules.addDays(weekStart,selectedOffset);
+      if(rowDate<shiftRules.SCHEDULE_START||rowDate>shiftRules.SCHEDULE_END) continue;
+      const item=shiftRules.getShift(rowDate,s.license,'official');
+      rows.push(`<tr class="${i===0?'current-week':''}"><td>${shiftDateLabel(item.weekStart,item.weekEnd)}</td><td>${pad(item.group)}</td><td><strong>T${item.turn}</strong> · ${esc(item.name)}</td><td><span class="shift-band ${item.broad.toLowerCase()}">${esc(item.broad)}</span></td><td>${esc(item.hours)}</td></tr>`);
+    }
+    $('#shiftSchedule').innerHTML=rows.join('');
+  }
+  $('#shiftDate').addEventListener('change',renderShifts);
+  $('#saveShiftLicense').addEventListener('click',()=>{
+    const license=Number.parseInt($('#shiftLicenseInput').value,10);
+    if(!license||license<1) return toast('Inserisci un numero di licenza valido.');
+    state.settings.license=license; state.settings.licenseType=$('#shiftLicenseType').value;
+    syncMandatoryHolidays(); save(); renderAll(); toast('Licenza e riposi obbligatori aggiornati.');
+  });
+
   function renderHolidays() {
     const rows = [...state.holidays].sort((a,b)=>a.start.localeCompare(b.start));
     const yearRows = rows.filter(h=>h.end>=`${currentYear}-01-01`&&h.start<=`${currentYear}-12-31`);
-    const netDays = yearRows.reduce((s,h)=>s+daysInclusive(h.start<`${currentYear}-01-01`?`${currentYear}-01-01`:h.start,h.end>`${currentYear}-12-31`?`${currentYear}-12-31`:h.end,true),0);
+    const plannedDays=holidaySet(`${currentYear}-01-01`,`${currentYear}-12-31`);
+    const netDays=[...plannedDays].filter(x=>{const d=parseDate(x).getDay(); return d!==0&&d!==6;}).length;
+    const imposed=yearRows.filter(h=>h.locked).length;
     const next = rows.find(h=>h.end>=today);
-    $('#holidaySummary').innerHTML = `<div class="mini-card"><span>Periodi ${currentYear}</span><strong>${yearRows.length}</strong><small>programmati</small></div><div class="mini-card"><span>Giorni feriali di ferie</span><strong>${netDays}</strong><small>esclusi dalle proiezioni</small></div><div class="mini-card"><span>Prossimo periodo</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
-    $('#holidayList').innerHTML = rows.map(h=>`<div class="holiday-item"><span class="holiday-icon">☀</span><div><h4>${esc(h.name)}</h4><p>${dateLabel(h.start)} → ${dateLabel(h.end)}${h.note?` · ${esc(h.note)}`:''}</p></div><span class="days-badge">${daysInclusive(h.start,h.end)} giorni</span><button class="edit-btn" data-edit="holiday" data-id="${h.id}" aria-label="Modifica ferie">✎</button></div>`).join('');
+    $('#holidaySummary').innerHTML = `<div class="mini-card featured"><span>Totale giorni pianificati ${currentYear}</span><strong>${plannedDays.size}</strong><small>giorni unici, inclusi i riposi imposti</small></div><div class="mini-card"><span>Giorni feriali esclusi</span><strong>${netDays}</strong><small>non usati nelle proiezioni</small></div><div class="mini-card"><span>Riposi imposti</span><strong>${imposed}</strong><small>periodi da QG/2926/2025</small></div><div class="mini-card"><span>Prossimo periodo</span><strong>${next?dateLabel(next.start):'—'}</strong><small>${next?esc(next.name):'Nessuna ferie programmata'}</small></div>`;
+    $('#holidayList').innerHTML = rows.map(h=>`<div class="holiday-item ${h.locked?'mandatory':''}"><span class="holiday-icon">${h.locked?'◆':'☀'}</span><div><h4>${esc(h.name)} ${h.locked?'<span class="mandatory-badge">Imposta</span>':''}</h4><p>${dateLabel(h.start)} → ${dateLabel(h.end)}${h.note?` · ${esc(h.note)}`:''}</p></div><span class="days-badge">${daysInclusive(h.start,h.end)} giorni</span>${h.locked?'<span class="lock-mark" title="Periodo automatico">🔒</span>':`<button class="edit-btn" data-edit="holiday" data-id="${h.id}" aria-label="Modifica ferie">✎</button>`}</div>`).join('');
     $('#holidayEmpty').classList.toggle('hidden', rows.length>0); $('#holidayEmpty').innerHTML='<strong>Nessun periodo di ferie</strong>Aggiungilo per rendere più accurate le proiezioni.';
   }
 
@@ -271,7 +340,9 @@
     const f=reportFilter(), d=totals(f.type,f.value), s=state.settings;
     const reportYear=Number(f.value.slice(0,4)), activityYear=Math.max(1,reportYear-Number(s.startYear||reportYear)+1);
     const effectiveTaxRate=activityYear<=5?Number(s.taxRateFirst??s.taxRate??5):Number(s.taxRateAfter??10);
-    const grossBase = s.cardOnly ? d.card : d.revenueTotal;
+    const secondDriverIncome=s.secondDriver?Number(s.secondDriverAmount||0)*f.months:0;
+    const totalIncome=d.revenueTotal+secondDriverIncome;
+    const grossBase = (s.cardOnly ? d.card : d.revenueTotal) + secondDriverIncome;
     const taxableBase = grossBase * Number(s.profitability)/100;
     const variableInps = taxableBase * Number(s.inpsRate)/100;
     const fixedInps = Number(s.inpsFixed||0) * f.months/12;
@@ -279,10 +350,10 @@
     const afterInps = Math.max(0,taxableBase-inps);
     const tax = afterInps * effectiveTaxRate/100;
     const reserve = inps+tax;
-    const net = d.revenueTotal-d.expenseTotal-reserve;
-    $('#reportHero').innerHTML=`<div><p class="eyebrow">ACCANTONAMENTO STIMATO · ${esc(f.label).toUpperCase()}</p><h3>${money(reserve)}</h3><p>INPS e imposta sostitutiva calcolati sulla base configurata. Disponibile stimato dopo costi e accantonamento: <strong>${money(net)}</strong>.</p></div><aside><div><span>Incassi totali</span><strong>${money(d.revenueTotal)}</strong></div><div><span>Spese pagate</span><strong>− ${money(d.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>− ${money(reserve)}</strong></div></aside>`;
-    $('#reportBreakdown').innerHTML=`<div class="report-card"><span>Ricavi carta</span><strong>${money(d.card)}</strong><small>${pct(d.revenueTotal?d.card/d.revenueTotal*100:0)} del totale · inclusi nella base</small></div><div class="report-card"><span>Ricavi contanti</span><strong>${money(d.cash)}</strong><small>${pct(d.revenueTotal?d.cash/d.revenueTotal*100:0)} del totale · ${s.cardOnly?'esclusi':'inclusi'} dalla base</small></div><div class="report-card"><span>Costo INPS</span><strong>${money(inps)}</strong><small>${pct(s.inpsRate)} sulla base + quota fissa</small></div><div class="report-card"><span>Imposta sostitutiva</span><strong>${money(tax)}</strong><small>${pct(effectiveTaxRate)} · anno ${activityYear} di attività</small></div>`;
-    $('#formulaSteps').innerHTML=`<div class="formula-step"><i>1</i><span>Ricavi di riferimento (${s.cardOnly?'solo carta':'carta + contanti'})</span><strong>${money(grossBase)}</strong></div><div class="formula-step"><i>2</i><span>Base imponibile × coefficiente ${pct(s.profitability)}</span><strong>${money(taxableBase)}</strong></div><div class="formula-step"><i>3</i><span>INPS variabile ${pct(s.inpsRate)} + quota fissa ${money(fixedInps)}</span><strong>− ${money(inps)}</strong></div><div class="formula-step"><i>4</i><span>Base dopo deduzione INPS</span><strong>${money(afterInps)}</strong></div><div class="formula-step"><i>5</i><span>Imposta sostitutiva ${pct(effectiveTaxRate)} (anno ${activityYear})</span><strong>${money(tax)}</strong></div>`;
+    const net = totalIncome-d.expenseTotal-reserve;
+    $('#reportHero').innerHTML=`<div><p class="eyebrow">ACCANTONAMENTO STIMATO · ${esc(f.label).toUpperCase()}</p><h3>${money(reserve)}</h3><p>INPS e imposta sostitutiva calcolati sulla base configurata. Disponibile stimato dopo costi e accantonamento: <strong>${money(net)}</strong>.</p></div><aside><div><span>Incassi taxi</span><strong>${money(d.revenueTotal)}</strong></div>${secondDriverIncome?`<div><span>Reddito seconda guida</span><strong>+ ${money(secondDriverIncome)}</strong></div>`:''}<div><span>Spese pagate</span><strong>− ${money(d.expenseTotal)}</strong></div><div><span>Accantonamento</span><strong>− ${money(reserve)}</strong></div></aside>`;
+    $('#reportBreakdown').innerHTML=`<div class="report-card"><span>Ricavi carta</span><strong>${money(d.card)}</strong><small>${pct(d.revenueTotal?d.card/d.revenueTotal*100:0)} del totale · inclusi nella base</small></div><div class="report-card"><span>Ricavi contanti</span><strong>${money(d.cash)}</strong><small>${pct(d.revenueTotal?d.cash/d.revenueTotal*100:0)} del totale · ${s.cardOnly?'esclusi':'inclusi'} dalla base</small></div><div class="report-card"><span>Reddito seconda guida</span><strong>${money(secondDriverIncome)}</strong><small>${s.secondDriver?`${money(s.secondDriverAmount)} al mese · incluso nella base`:'Non attiva nelle impostazioni'}</small></div><div class="report-card"><span>Costo INPS</span><strong>${money(inps)}</strong><small>${pct(s.inpsRate)} sulla base + quota fissa</small></div><div class="report-card"><span>Imposta sostitutiva</span><strong>${money(tax)}</strong><small>${pct(effectiveTaxRate)} · anno ${activityYear} di attività</small></div>`;
+    $('#formulaSteps').innerHTML=`<div class="formula-step"><i>1</i><span>Ricavi di riferimento (${s.cardOnly?'carta':'carta + contanti'}${secondDriverIncome?' + seconda guida':''})</span><strong>${money(grossBase)}</strong></div><div class="formula-step"><i>2</i><span>Base imponibile × coefficiente ${pct(s.profitability)}</span><strong>${money(taxableBase)}</strong></div><div class="formula-step"><i>3</i><span>INPS variabile ${pct(s.inpsRate)} + quota fissa ${money(fixedInps)}</span><strong>− ${money(inps)}</strong></div><div class="formula-step"><i>4</i><span>Base dopo deduzione INPS</span><strong>${money(afterInps)}</strong></div><div class="formula-step"><i>5</i><span>Imposta sostitutiva ${pct(effectiveTaxRate)} (anno ${activityYear})</span><strong>${money(tax)}</strong></div>`;
   }
   $('#reportYear').addEventListener('change',renderReport); $('#reportMonth').addEventListener('change',renderReport);
   $('#printReport').addEventListener('click',()=>{const old=document.title; document.title=`Taxi Ledger - Consuntivo ${reportFilter().label}`; window.print(); setTimeout(()=>document.title=old,500);});
@@ -290,11 +361,15 @@
   function settingsToForm() {
     const s=state.settings;
     $('#settingsName').value=s.name||''; $('#settingsBusiness').value=s.business||''; $('#settingsCurrency').value=s.currency||'EUR';
+    $('#settingsLicense').value=s.license||''; $('#settingsLicenseType').value=s.licenseType||'ordinary'; $('#settingsShiftMode').value=s.shiftMode||'official';
+    $('#settingsSecondDriver').checked=!!s.secondDriver; $('#settingsSecondDriverAmount').value=s.secondDriverAmount||0;
     $('#settingsStartYear').value=s.startYear||currentYear; $('#settingsTaxRateFirst').value=s.taxRateFirst??s.taxRate??5; $('#settingsTaxRateAfter').value=s.taxRateAfter??10; $('#settingsProfitability').value=s.profitability; $('#settingsInpsRate').value=s.inpsRate; $('#settingsInpsFixed').value=s.inpsFixed; $('#settingsCardOnly').checked=!!s.cardOnly;
   }
   $('#saveSettings').addEventListener('click',()=>{
     const name=$('#settingsName').value.trim(); if(!name) return toast('Inserisci un nome visualizzato.');
-    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked};
+    const license=Number.parseInt($('#settingsLicense').value,10)||'';
+    state.settings={...state.settings,name,business:$('#settingsBusiness').value.trim(),currency:$('#settingsCurrency').value,license,licenseType:$('#settingsLicenseType').value,shiftMode:$('#settingsShiftMode').value,secondDriver:$('#settingsSecondDriver').checked,secondDriverAmount:Number($('#settingsSecondDriverAmount').value)||0,startYear:Number($('#settingsStartYear').value),taxRateFirst:Number($('#settingsTaxRateFirst').value),taxRateAfter:Number($('#settingsTaxRateAfter').value),profitability:Number($('#settingsProfitability').value),inpsRate:Number($('#settingsInpsRate').value),inpsFixed:Number($('#settingsInpsFixed').value),cardOnly:$('#settingsCardOnly').checked};
+    syncMandatoryHolidays();
     save(); syncIdentity(); renderAll(); toast('Impostazioni aggiornate.');
   });
   $('#exportData').addEventListener('click',()=>{
@@ -303,7 +378,7 @@
   });
   $('#importData').addEventListener('change', async e=>{
     const file=e.target.files[0]; if(!file)return;
-    try { const parsed=JSON.parse(await file.text()); const incoming=parsed.data||parsed; if(!Array.isArray(incoming.revenues)||!Array.isArray(incoming.expenses)) throw new Error(); if(!confirm('Sostituire i dati di questo profilo con il backup selezionato?')) return; state=normalizeData(incoming,state.settings.name); save(); populateReportYears(); renderAll(); toast('Backup importato.'); }
+    try { const parsed=JSON.parse(await file.text()); const incoming=parsed.data||parsed; if(!Array.isArray(incoming.revenues)||!Array.isArray(incoming.expenses)) throw new Error(); if(!confirm('Sostituire i dati di questo profilo con il backup selezionato?')) return; state=normalizeData(incoming,state.settings.name); syncMandatoryHolidays(); save(); populateReportYears(); renderAll(); toast('Backup importato.'); }
     catch { toast('Il file non è un backup Taxi Ledger valido.'); }
     e.target.value='';
   });
@@ -320,7 +395,7 @@
   });
 
   const fieldTemplates={
-    revenue:item=>`<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Descrizione<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Es. turno mattina"></label>`,
+    revenue:item=>`<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Descrizione<input name="note" maxlength="100" value="${esc(item.id?(item.note||''):suggestedRevenueNote(item.date||today))}" placeholder="Es. turno mattina"><small id="revenueShiftHint" class="field-hint"></small></label>`,
     expense:item=>`<label>Data<input name="date" type="date" required value="${item.date||today}"></label><label>Importo (€)<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" value="${item.amount||''}"></label><label>Categoria<select name="category">${['Carburante','Canone','Manutenzione','Gomme','Assicurazione','Lavaggio','Pedaggi','Altro'].map(x=>`<option ${item.category===x?'selected':''}>${x}</option>`).join('')}</select></label><label>Stato<select name="status"><option value="paid" ${item.status!=='planned'?'selected':''}>Pagata</option><option value="planned" ${item.status==='planned'?'selected':''}>Pianificata</option></select></label><label>Metodo<select name="method"><option value="card" ${item.method==='card'?'selected':''}>Carta</option><option value="cash" ${item.method==='cash'?'selected':''}>Contanti</option></select></label><label class="full">Nota<input name="note" maxlength="100" value="${esc(item.note||'')}" placeholder="Dettaglio facoltativo"></label>`,
     holiday:item=>`<label>Dal<input name="start" type="date" required value="${item.start||today}"></label><label>Al<input name="end" type="date" required value="${item.end||today}"></label><label class="full">Nome periodo<input name="name" required maxlength="80" value="${esc(item.name||'Ferie')}" placeholder="Es. Ferie estive"></label><label class="full">Nota<input name="note" maxlength="120" value="${esc(item.note||'')}" placeholder="Facoltativa"></label>`
   };
@@ -333,6 +408,16 @@
     const newLabels={revenue:'Nuovo incasso',expense:'Nuova spesa',holiday:'Nuovo periodo di ferie'};
     $('#modalTitle').textContent=id?`Modifica ${names[type]}`:newLabels[type];
     $('#deleteEntry').classList.toggle('hidden',!id); $('#entryDialog').showModal();
+    if(type==='revenue') {
+      const dateField=$('#entryFields [name="date"]'), noteField=$('#entryFields [name="note"]');
+      let autoNote=id?'':suggestedRevenueNote(dateField.value);
+      const updateHint=()=>{
+        const shift=shiftForDate(dateField.value), hint=$('#revenueShiftHint');
+        hint.textContent=shift?(shift.turn?`Turno ufficiale T${shift.turn} ${shift.name}, gruppo ${pad(shift.group)}. La descrizione resta modificabile.`:`${shift.name}. La descrizione resta modificabile.`):'Nessun turno ufficiale disponibile per questa data o licenza.';
+      };
+      dateField.addEventListener('change',()=>{const next=suggestedRevenueNote(dateField.value); if(!id&&(noteField.value===''||noteField.value===autoNote)) noteField.value=next; autoNote=next; updateHint();});
+      updateHint();
+    }
   }
   $('#quickRevenue').addEventListener('click',()=>openEntry('revenue')); $('#quickExpense').addEventListener('click',()=>openEntry('expense')); $('#mobileQuick').addEventListener('click',()=>openEntry('revenue')); $('#addHoliday').addEventListener('click',()=>openEntry('holiday'));
   $('#closeModal').addEventListener('click',()=>$('#entryDialog').close()); $('#cancelModal').addEventListener('click',()=>$('#entryDialog').close());
@@ -350,7 +435,7 @@
     const key=type==='revenue'?'revenues':type==='expense'?'expenses':'holidays'; state[key]=state[key].filter(x=>x.id!==id); save(); renderAll(); $('#entryDialog').close(); toast('Elemento eliminato.');
   });
 
-  function renderAll() { setupDashboardPicker(); renderDashboard(); renderRevenues(); renderExpenses(); renderHolidays(); renderReport(); settingsToForm(); }
+  function renderAll() { setupDashboardPicker(); renderDashboard(); renderRevenues(); renderExpenses(); renderHolidays(); renderShifts(); renderReport(); settingsToForm(); }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
   if (userEmail && store.accounts[userEmail]) enterApp(); else showAuth();

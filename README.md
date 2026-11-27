@@ -1,4 +1,4 @@
-# Taxi Ledger 2.2
+# Taxi Ledger 2.3
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -30,6 +30,19 @@ La **Proiezione totale incassi** usa esclusivamente i giorni distinti nei quali 
 `incasso medio giornaliero × giorni lavorativi restanti + incassi già effettuati = proiezione totale incassi`
 
 I giorni lavorativi restanti escludono fine settimana e periodi di ferie registrati.
+
+## Turni e seconda guida 2.3
+
+- nuova sezione **Turni** basata sulla D.D. Roma Capitale QG/2926/2025;
+- calcolo del gruppo 01-20 e del turno settimanale T1-T7 dal numero di licenza;
+- proposta automatica `Turno mattina` / `Turno pomeriggio` nelle note dei nuovi incassi, sempre modificabile;
+- bypass della turnazione ufficiale per chi lavora solo di mattina o solo di pomeriggio;
+- aggiunta automatica dei periodi obbligatori di riduzione organico di agosto 2026 e dicembre 2026/gennaio 2027;
+- totale dei giorni di ferie pianificati, con separazione dei riposi imposti;
+- seconda guida con compenso mensile contrattualizzato incluso nel reddito e nel Consuntivo;
+- menu laterale accessibile anche da iPhone tramite il pulsante in alto a sinistra.
+
+La turnazione ufficiale incorporata copre il periodo **10 gennaio 2026 - 15 gennaio 2027**. Le eventuali modifiche amministrative successive devono essere recepite con un aggiornamento dell'app.
 
 ## Pubblicazione su GitHub Pages
 

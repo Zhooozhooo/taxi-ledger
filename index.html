@@ -64,6 +64,7 @@
         <button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button>
         <button class="nav-item" data-view="expenses"><span>↘</span>Spese</button>
         <button class="nav-item" data-view="holidays"><span>☀</span>Ferie</button>
+        <button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
         <button class="nav-item" data-view="report"><span>▤</span>Consuntivo</button>
         <button class="nav-item" data-view="settings"><span>⚙</span>Impostazioni</button>
       </nav>
@@ -109,13 +110,29 @@
         </section>
 
         <section id="view-holidays" class="view">
-          <div class="section-actions"><div><h2>Ferie</h2><p class="muted">I periodi inseriti vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
+          <div class="section-actions"><div><h2>Ferie</h2><p class="muted">I periodi personali e i riposi obbligatori vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
           <div id="holidaySummary" class="mini-kpis"></div>
           <div class="card"><div id="holidayList" class="holiday-list"></div><div id="holidayEmpty" class="empty hidden"></div></div>
         </section>
 
+        <section id="view-shifts" class="view">
+          <div class="section-actions"><div><h2>Turni</h2><p class="muted">Turnazione ufficiale Roma Capitale dal 10 gennaio 2026 al 15 gennaio 2027.</p></div></div>
+          <div class="card shift-controls">
+            <label>Tipo licenza<select id="shiftLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label>
+            <label>Numero licenza<input id="shiftLicenseInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label>
+            <label>Data di riferimento<input id="shiftDate" type="date" min="2026-01-10" max="2027-01-15"></label>
+            <button id="saveShiftLicense" class="primary" type="button">Salva e calcola</button>
+          </div>
+          <div id="shiftCurrent" class="shift-current"></div>
+          <article class="card shift-table-card"><div class="card-heading"><div><p class="eyebrow">PROGRAMMAZIONE</p><h3>Le settimane vicine</h3></div><span id="shiftGroupBadge" class="pill"></span></div><div class="table-wrap"><table><thead><tr><th>Settimana</th><th>Gruppo</th><th>Turno</th><th>Fascia note</th><th>Orario del giorno</th></tr></thead><tbody id="shiftSchedule"></tbody></table></div></article>
+          <div class="shift-info-grid">
+            <article class="card"><p class="eyebrow">LOGICA APPLICATA</p><h3>Gruppi e rotazione</h3><p class="muted">La licenza viene associata a uno dei gruppi 01-20; la tabella settimanale assegna poi il gruppo ai turni T1-T7. La nota proposta per un nuovo incasso resta sempre modificabile.</p></article>
+            <article class="card"><p class="eyebrow">SECONDA GUIDA</p><h3>Riposi condivisi</h3><p class="muted">I riposi e le riduzioni di organico restano obbligatori per prima e seconda guida. Il compenso contrattualizzato può essere configurato nelle Impostazioni e confluisce nel Consuntivo.</p></article>
+          </div>
+        </section>
+
         <section id="view-report" class="view">
-          <div class="section-actions report-actions"><div><h2>Consuntivo fiscale</h2><p class="muted">Stima dell'accantonamento su ricavi da carta.</p></div><button id="printReport" class="secondary" type="button">⇩ Esporta PDF</button></div>
+          <div class="section-actions report-actions"><div><h2>Consuntivo fiscale</h2><p class="muted">Stima dell'accantonamento su ricavi taxi e reddito della seconda guida.</p></div><button id="printReport" class="secondary" type="button">⇩ Esporta PDF</button></div>
           <div class="card compact report-filter"><label>Anno<select id="reportYear"></select></label><label>Periodo<select id="reportMonth"><option value="all">Intero anno</option><option value="01">Gennaio</option><option value="02">Febbraio</option><option value="03">Marzo</option><option value="04">Aprile</option><option value="05">Maggio</option><option value="06">Giugno</option><option value="07">Luglio</option><option value="08">Agosto</option><option value="09">Settembre</option><option value="10">Ottobre</option><option value="11">Novembre</option><option value="12">Dicembre</option></select></label></div>
           <div id="reportHero" class="report-hero"></div>
           <div id="reportBreakdown" class="report-grid"></div>
@@ -125,8 +142,9 @@
         <section id="view-settings" class="view">
           <div class="section-actions"><div><h2>Impostazioni</h2><p class="muted">Personalizza il profilo e le ipotesi di calcolo.</p></div><button id="saveSettings" class="primary" type="button">Salva modifiche</button></div>
           <div class="settings-grid">
-            <article class="card settings-card"><p class="eyebrow">PROFILO</p><h3>Dati personali</h3><label>Nome visualizzato<input id="settingsName" type="text" maxlength="50"></label><label>Attività / licenza<input id="settingsBusiness" type="text" maxlength="80" placeholder="Es. Taxi Roma 3570"></label><label>Valuta<select id="settingsCurrency"><option value="EUR">Euro (€)</option></select></label></article>
+            <article class="card settings-card"><p class="eyebrow">PROFILO E TURNI</p><h3>Dati personali</h3><label>Nome visualizzato<input id="settingsName" type="text" maxlength="50"></label><label>Attività / descrizione<input id="settingsBusiness" type="text" maxlength="80" placeholder="Es. Taxi Roma"></label><label>Tipo licenza<select id="settingsLicenseType"><option value="ordinary">Ordinaria</option><option value="mu">MU</option></select></label><label>Numero di licenza<input id="settingsLicense" type="number" min="1" step="1" inputmode="numeric" placeholder="Es. 3570"></label><label>Gestione turni<select id="settingsShiftMode"><option value="official">Turnazione ufficiale</option><option value="morning">Bypass: solo mattina</option><option value="afternoon">Bypass: solo pomeriggio</option></select></label><label>Valuta<select id="settingsCurrency"><option value="EUR">Euro (€)</option></select></label></article>
             <article class="card settings-card"><p class="eyebrow">REGIME FISCALE</p><h3>Aliquote personalizzate</h3><label>Anno di inizio attività<input id="settingsStartYear" type="number" min="1980" max="2100" step="1"></label><label>Aliquota primi 5 anni (%)<input id="settingsTaxRateFirst" type="number" min="0" max="100" step="0.1"></label><label>Aliquota dal 6° anno (%)<input id="settingsTaxRateAfter" type="number" min="0" max="100" step="0.1"></label><label>Coefficiente di redditività (%)<input id="settingsProfitability" type="number" min="0" max="100" step="0.1"></label><label>Aliquota INPS (%)<input id="settingsInpsRate" type="number" min="0" max="100" step="0.01"></label><label>Contributo INPS fisso annuo (€)<input id="settingsInpsFixed" type="number" min="0" step="0.01"></label><label class="toggle-row"><span>Escludi il contante dalla base imponibile</span><input id="settingsCardOnly" type="checkbox"></label></article>
+            <article class="card settings-card"><p class="eyebrow">SECONDA GUIDA</p><h3>Reddito contrattualizzato</h3><label class="toggle-row"><span>Seconda guida attiva</span><input id="settingsSecondDriver" type="checkbox"></label><label>Compenso mensile contrattualizzato (€)<input id="settingsSecondDriverAmount" type="number" min="0" step="0.01" inputmode="decimal"></label><p class="muted">Il compenso viene conteggiato come reddito nel Consuntivo: una quota per il mese selezionato o dodici quote per l'anno.</p></article>
             <article class="card settings-card"><p class="eyebrow">DATI</p><h3>Backup e ripristino</h3><p class="muted">Scarica una copia completa del profilo o importa un backup precedente.</p><div class="stack-actions"><button id="exportData" class="secondary" type="button">Esporta backup JSON</button><label class="file-button">Importa backup JSON<input id="importData" type="file" accept="application/json"></label><button id="loadDemo" class="text-btn danger" type="button">Carica dati dimostrativi</button><button id="deleteProfile" class="text-btn danger" type="button">Elimina questo profilo</button></div></article>
           </div>
         </section>
@@ -134,7 +152,7 @@
     </div>
 
     <nav class="bottom-nav" aria-label="Navigazione mobile">
-      <button class="nav-item active" data-view="dashboard"><span>⌂</span>Home</button><button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button><button class="nav-item quick" id="mobileQuick" type="button"><span>＋</span></button><button class="nav-item" data-view="expenses"><span>↘</span>Spese</button><button class="nav-item" data-view="report"><span>▤</span>Report</button>
+      <button class="nav-item active" data-view="dashboard"><span>⌂</span>Home</button><button class="nav-item" data-view="revenues"><span>↗</span>Incassi</button><button class="nav-item quick" id="mobileQuick" type="button"><span>＋</span></button><button class="nav-item" data-view="expenses"><span>↘</span>Spese</button><button class="nav-item" data-view="shifts"><span>◷</span>Turni</button>
     </nav>
   </div>
 
@@ -147,6 +165,7 @@
     </form>
   </dialog>
 
+  <script src="shift-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
