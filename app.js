@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'taxiLedger.accounts.v2';
   const SESSION_KEY = 'taxiLedger.session.v2';
-  const APP_VERSION = '3.2.2';
+  const APP_VERSION = '3.2.3';
   const SHIFT_PDF_DB = 'taxiLedger.documents.v1';
   const shiftRules = window.TAXI_SHIFT_RULES;
   const $ = (s, root = document) => root.querySelector(s);
@@ -278,14 +278,19 @@
     const freenow = revenues.filter(r => r.method === 'freenow').reduce((s,r) => s + Number(r.amount), 0);
     const ittaxi = revenues.filter(r => r.method === 'ittaxi').reduce((s,r) => s + Number(r.amount), 0);
     const cardLike = card + uber + freenow + ittaxi;
-    const platformFees = uber*.07 + freenow*.10;
+    const feeByMethod = revenues.reduce((fees,r) => {
+      const method = revenueMethod(r.method), fee = Number(r.amount) * method.fee / 100;
+      if (fee > 0) fees[r.method] = (fees[r.method] || 0) + fee;
+      return fees;
+    }, {});
+    const platformFees = Object.values(feeByMethod).reduce((sum,fee) => sum + fee, 0);
     const expenseTotal = expenses.reduce((s,r) => s + Number(r.amount), 0);
     const plannedTotal = plannedExpenses.reduce((s,r) => s + Number(r.amount), 0);
     const cancelledTotal = cancelledExpenses.reduce((s,r) => s + Number(r.amount), 0);
     const revenueTotal = cash + cardLike;
     const netRevenue = revenueTotal-platformFees;
     const margin = netRevenue - expenseTotal;
-    return {revenues, allExpenses, expenses, plannedExpenses, cancelledExpenses, cash, card, uber, freenow, ittaxi, cardLike, platformFees, revenueTotal, netRevenue, expenseTotal, plannedTotal, cancelledTotal, margin};
+    return {revenues, allExpenses, expenses, plannedExpenses, cancelledExpenses, cash, card, uber, freenow, ittaxi, cardLike, feeByMethod, platformFees, revenueTotal, netRevenue, expenseTotal, plannedTotal, cancelledTotal, margin};
   }
   function holidaySet(start, end) {
     const set = new Set();
@@ -353,6 +358,8 @@
     let cards = kpi('↗','INCASSI',money(d.revenueTotal),`${d.revenues.length} movimenti`,'accent');
     cards += kpi('▣','TRACCIATI',money(d.cardLike),`${pct(cardShare)} · carta e piattaforme`);
     cards += kpi('●','CONTANTI',money(d.cash),`${pct(cashShare)} degli incassi`);
+    const feeTypeCount = Object.keys(d.feeByMethod).length;
+    cards += kpi('％','FEE PAGATE',money(d.platformFees),feeTypeCount?`${feeTypeCount} ${feeTypeCount===1?'tipologia':'tipologie'} con commissioni`:'Nessuna fee nel periodo','fee-card');
     cards += kpi('↘','SPESE SOSTENUTE',money(d.expenseTotal),`${d.expenses.length} ${d.expenses.length===1?'spesa pagata':'spese pagate'}`);
     cards += kpi('◷','SPESE PIANIFICATE',money(d.plannedTotal),d.plannedExpenses.length?`${d.plannedExpenses.length} ${d.plannedExpenses.length===1?'scadenza':'scadenze'}${overduePlanned?` · ${overduePlanned} scadute`:''}`:'Nessuna spesa pianificata');
     cards += kpi('◇','MARGINE EFFETTIVO',money(d.margin),`${pct(marginShare)} · incassi netti − spese pagate`);
@@ -369,9 +376,11 @@
     $('#expenseTotalBadge').textContent = money(d.expenseTotal);
     const revenueTypes=[['Carta',d.card,0],['Contanti',d.cash,0],['Uber',d.uber,7],['FreeNow',d.freenow,10],['ITTaxi',d.ittaxi,0]].filter(x=>x[1]>0);
     const revenueTypeRows=revenueTypes.map(([label,amount,fee],index)=>{const share=d.revenueTotal?amount/d.revenueTotal*100:0;return `<div class="type-row"><i class="type-dot type-color-${index%8}"></i><span>${label}${fee?` <small>fee ${fee}%</small>`:''}</span><div class="type-track"><i class="type-fill type-color-${index%8}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
+    const feeTypes=Object.entries(d.feeByMethod).filter(([,amount])=>amount>0).sort((a,b)=>b[1]-a[1]);
+    const feeTypeRows=feeTypes.map(([method,amount],index)=>{const meta=revenueMethod(method),share=d.platformFees?amount/d.platformFees*100:0;return `<div class="type-row fee-type-row"><i class="type-dot fee-color-${index%4}"></i><span>${esc(meta.label)} <small>fee ${meta.fee}%</small></span><div class="type-track"><i class="type-fill fee-color-${index%4}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
     const expenseTypes=new Map(); d.expenses.forEach(x=>expenseTypes.set(x.category||'Altro',(expenseTypes.get(x.category||'Altro')||0)+Number(x.amount)));
     const expenseRows=[...expenseTypes.entries()].sort((a,b)=>b[1]-a[1]).map(([label,amount],index)=>{const share=d.expenseTotal?amount/d.expenseTotal*100:0;return `<div class="type-row"><i class="type-dot expense-color-${index%6}"></i><span>${esc(label)}</span><div class="type-track"><i class="type-fill expense-color-${index%6}" style="width:${share}%"></i></div><strong>${pct(share)}</strong><b>${money(amount)}</b></div>`;}).join('');
-    $('#revenueMix').innerHTML = `<div class="mix-section">${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}${d.platformFees?`<div class="fee-summary"><span>Fee piattaforme</span><strong>− ${money(d.platformFees)}</strong></div>`:''}</div>`;
+    $('#revenueMix').innerHTML = `<div class="mix-section"><span class="mix-section-title">Split incassi per tipologia</span>${revenueTypeRows||'<div class="mix-empty">Nessun incasso nel periodo selezionato.</div>'}</div><div class="mix-section fee-mix-section"><span class="mix-section-title">Split fee per tipologia</span>${feeTypeRows||'<div class="mix-empty">Nessuna fee nel periodo selezionato.</div>'}<div class="fee-summary"><span>Totale fee pagate</span><strong>${money(d.platformFees)}</strong></div></div>`;
     $('#expenseMix').innerHTML = `<div class="mix-section">${expenseRows||'<div class="mix-empty">Nessuna spesa pagata nel periodo selezionato.</div>'}</div>`;
   }
   $$('[data-dashboard-ledger]').forEach(button=>button.addEventListener('click',()=>{
