@@ -112,6 +112,11 @@
         <section id="view-holidays" class="view">
           <div class="section-actions"><div><h2>Ferie</h2><p class="muted">I periodi personali e i riposi obbligatori vengono esclusi dalle proiezioni.</p></div><button id="addHoliday" class="primary" type="button">＋ Nuovo periodo</button></div>
           <div id="holidaySummary" class="mini-kpis"></div>
+          <article class="card shift-calendar-card holiday-calendar-card">
+            <div class="calendar-toolbar"><div><p class="eyebrow">CALENDARIO FERIE</p><h3 id="holidayCalendarTitle">Calendario mensile</h3></div><div class="calendar-navigation"><button id="holidayCalendarPrev" class="icon-btn calendar-arrow" type="button" aria-label="Mese precedente">‹</button><label class="calendar-month-picker"><span>Mese</span><input id="holidayCalendarMonth" type="month"></label><button id="holidayCalendarNext" class="icon-btn calendar-arrow" type="button" aria-label="Mese successivo">›</button></div></div>
+            <div class="calendar-legend"><span><i class="legend-swatch mandatory"></i>Ferie imposte</span><span><i class="legend-swatch personal"></i>Ferie personali</span></div>
+            <div class="calendar-scroll"><div class="calendar-weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span></div><div id="holidayCalendarGrid" class="shift-calendar-grid holiday-calendar-grid"></div></div>
+          </article>
           <div class="card"><div id="holidayList" class="holiday-list"></div><div id="holidayEmpty" class="empty hidden"></div></div>
         </section>
 
@@ -137,11 +142,12 @@
         </section>
 
         <section id="view-report" class="view">
-          <div class="section-actions report-actions"><div><h2>Consuntivo fiscale</h2><p class="muted">Stima dell'accantonamento su ricavi taxi e reddito della seconda guida.</p></div><button id="printReport" class="secondary" type="button">⇩ Esporta PDF</button></div>
+          <div class="section-actions report-actions"><div><h2>Consuntivo fiscale</h2><p class="muted">Stima dell'accantonamento su ricavi taxi e reddito della seconda guida.</p></div><div class="report-export-actions"><button id="printSummaryReport" class="secondary" type="button">⇩ PDF sintetico mensile</button><button id="printDetailedReport" class="primary" type="button">⇩ PDF dettagliato mensile</button></div></div>
           <div class="card compact report-filter"><label>Anno<select id="reportYear"></select></label><label>Periodo<select id="reportMonth"><option value="all">Intero anno</option><option value="01">Gennaio</option><option value="02">Febbraio</option><option value="03">Marzo</option><option value="04">Aprile</option><option value="05">Maggio</option><option value="06">Giugno</option><option value="07">Luglio</option><option value="08">Agosto</option><option value="09">Settembre</option><option value="10">Ottobre</option><option value="11">Novembre</option><option value="12">Dicembre</option></select></label></div>
           <div id="reportHero" class="report-hero"></div>
           <div id="reportBreakdown" class="report-grid"></div>
           <article class="card formula-card"><div><p class="eyebrow">COME VIENE CALCOLATO</p><h3>Dal fatturato all'accantonamento</h3></div><div id="formulaSteps" class="formula-steps"></div><p class="legal-note">Stima gestionale basata sulle impostazioni del profilo: verifica importi e aliquote con il tuo consulente fiscale.</p></article>
+          <section id="reportDetail" class="report-detail card"><div class="card-heading"><div><p class="eyebrow">DETTAGLIO DEL MESE</p><h3 id="reportDetailTitle">Movimenti del periodo</h3></div><span id="reportDetailCount" class="pill"></span></div><div id="reportDetailBody"></div></section>
         </section>
 
         <section id="view-settings" class="view">

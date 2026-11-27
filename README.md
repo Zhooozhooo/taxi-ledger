@@ -1,4 +1,4 @@
-# Taxi Ledger 2.4
+# Taxi Ledger 2.5
 
 PWA statica per gestire incassi, spese, ferie, proiezioni e accantonamenti fiscali di un'attività taxi.
 
@@ -56,6 +56,16 @@ La turnazione ufficiale incorporata copre il periodo **10 gennaio 2026 - 15 genn
 - calendario grafico mensile nella sezione Turni, navigabile mese per mese, con turni previsti, ferie personali e riposi imposti.
 
 Le configurazioni sono archiviate separatamente per anno e incluse nei backup JSON.
+
+## Calendario Ferie e dashboard 2.5
+
+- calendario grafico mensile anche nella sezione **Ferie**, con navigazione tra i mesi;
+- visualizzazione distinta di ferie personali e riposi imposti;
+- selezione di un giorno vuoto per aggiungere un nuovo periodo e di una ferie personale per modificarla;
+- nuovo indicatore **Introito seconda guida** nel Cruscotto mensile e annuale;
+- l'indicatore usa esclusivamente i mesi effettivamente marcati come assegnati per l'anno consultato.
+- esportazione PDF **sintetica mensile** con totali, accantonamento e calcolo fiscale;
+- esportazione PDF **dettagliata mensile** con il riepilogo e l'elenco di incassi e spese del mese.
 
 ## Pubblicazione su GitHub Pages
 

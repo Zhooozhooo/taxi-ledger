@@ -2,7 +2,7 @@
 
 1. Aprire il repository `taxi-ledger` su GitHub.
 2. In **Code**, caricare tutti i file di questa cartella nella root e confermare la sostituzione dei file omonimi.
-3. Creare il commit con messaggio `Taxi Ledger 2.4` sul branch `main`.
+3. Creare il commit con messaggio `Taxi Ledger 2.5` sul branch `main`.
 4. Aprire **Actions** e attendere il segno verde di `pages build and deployment`.
 5. Ricaricare il sito. Se appare ancora la versione precedente, chiudere e riaprire Safari oppure cancellare i dati del sito per aggiornare la cache offline.
 
