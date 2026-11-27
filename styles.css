@@ -78,3 +78,9 @@ main{background:linear-gradient(180deg,#f6f8fb 0,#f3f5f8 100%);min-height:calc(1
 @media(max-width:760px){.dashboard-analysis-grid,.dashboard-ledger-actions{grid-template-columns:1fr}.shift-section-actions{display:grid}.shift-pdf-actions{justify-items:stretch;max-width:none;width:100%}.shift-pdf-actions>div{display:grid;grid-template-columns:1fr}.shift-pdf-actions small{text-align:left}.source-link,.shift-pdf-upload{width:100%}}
 
 .combined-shift-heading{margin-top:1.6rem}
+
+/* Refinement: keep Data and Expense Reminders together in Settings. */
+.settings-grid .data-settings-card{grid-column:1}
+.settings-grid .reminder-settings-card{grid-column:2}
+@media(max-width:760px){.settings-grid .data-settings-card,.settings-grid .reminder-settings-card{grid-column:1}}
+
