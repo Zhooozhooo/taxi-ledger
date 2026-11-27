@@ -1,12 +1,9 @@
-# Pubblicazione con GitHub Pages
+# Aggiornamento del sito esistente
 
-Il pacchetto include già il flusso automatico `.github/workflows/pages.yml`.
+1. Aprire il repository `taxi-ledger` su GitHub.
+2. In **Code**, caricare tutti i file di questa cartella nella root e confermare la sostituzione dei file omonimi.
+3. Creare il commit con messaggio `Taxi Ledger 2.0` sul branch `main`.
+4. Aprire **Actions** e attendere il segno verde di `pages build and deployment`.
+5. Ricaricare il sito. Se appare ancora la versione precedente, chiudere e riaprire Safari oppure cancellare i dati del sito per aggiornare la cache offline.
 
-1. Accedi a GitHub e crea un repository **pubblico** chiamato `taxi-ledger`.
-2. Carica nella radice del repository tutto il contenuto della cartella `TaxiLedgerWeb` (non la cartella contenitore).
-3. Apri **Settings → Pages**.
-4. In **Build and deployment → Source**, scegli **GitHub Actions**.
-5. Apri la scheda **Actions**: il processo “Pubblica Taxi Ledger su GitHub Pages” partirà automaticamente.
-6. Al termine, il sito sarà normalmente disponibile all’indirizzo `https://NOME-UTENTE.github.io/taxi-ledger/`.
-
-Il sito usa HTTPS e può essere aggiunto alla schermata Home dell’iPhone da Safari. GitHub Pages espone un nome web, non un indirizzo IP fisso: è la modalità corretta perché una PWA richiede HTTPS e gli IP di GitHub possono cambiare.
+I dati già memorizzati dal sito precedente non vengono cancellati dai file pubblicati, ma questa versione usa un archivio account separato. Dopo la registrazione è possibile importare un backup JSON creato nella sezione Impostazioni.
